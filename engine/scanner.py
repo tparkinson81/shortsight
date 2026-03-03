@@ -807,20 +807,20 @@ class ShortScanner:
                 "social": c.social_score, "sec": c.sec_score, "analyst": c.analyst_score,
             }
             
-            critical_signals = []  # 70%+ of max
-            elevated_signals = []  # 50%+ of max
+            critical_signals = []  # 60%+ of max (lowered — several data sources unavailable)
+            elevated_signals = []  # 40%+ of max
             
             for dim, score_val in dimension_scores.items():
                 max_val = dimension_maxes[dim]
                 if max_val == 0:
                     continue
                 pct = score_val / max_val
-                if pct >= 0.7:
+                if pct >= 0.6:
                     critical_signals.append(dim)
-                elif pct >= 0.5:
+                elif pct >= 0.4:
                     elevated_signals.append(dim)
             
-            # FILTER: Must have at least 1 critical signal
+            # FILTER: Must have at least 1 critical or 2 elevated signals
             if not critical_signals and len(elevated_signals) < 2:
                 return None
             
@@ -861,7 +861,7 @@ class ShortScanner:
             print(f"  ✗ {ticker}: Error — {e}")
             return None
     
-    def run_scan(self, max_deep: int = 50) -> Dict:
+    def run_scan(self, max_deep: int = 75) -> Dict:
         """
         Full scan: quick screen S&P 500, then deep analysis on candidates.
         """
@@ -932,7 +932,7 @@ class ShortScanner:
         
         return output
     
-    def _quick_screen(self, universe: List[str], max_candidates: int = 30) -> List[str]:
+    def _quick_screen(self, universe: List[str], max_candidates: int = 75) -> List[str]:
         """Quick screen using batch profiles to find weak stocks."""
         candidates = []
         batch_size = 20
@@ -947,15 +947,15 @@ class ShortScanner:
                     changes = p.get("changes") or 0
                     mktCap = p.get("mktCap") or 0
                     
-                    if mktCap < 1_000_000_000:
+                    if mktCap < 500_000_000:
                         continue
                     
-                    # Flag for deeper analysis
-                    if pe > 35 or pe < 0:
+                    # Flag for deeper analysis — widened criteria
+                    if pe > 30 or pe < 0:
                         candidates.append(sym)
-                    elif changes < -1:
+                    elif changes < -0.5:
                         candidates.append(sym)
-                    elif pe > 20 and changes < 0:
+                    elif pe > 15 and changes < 0:
                         candidates.append(sym)
                     elif pe == 0:
                         candidates.append(sym)
