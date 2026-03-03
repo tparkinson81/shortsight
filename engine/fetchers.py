@@ -115,9 +115,11 @@ class FMPFetcher:
         return []
     
     def get_earnings_surprises(self, ticker: str) -> List[Dict]:
-        data = self._get("earnings-surprises", {"symbol": ticker})
-        if isinstance(data, list):
-            return data[:8]
+        """Get earnings surprises. Tries multiple path variants."""
+        for ep in ["earnings-surprises", "earnings-surprise"]:
+            data = self._get(ep, {"symbol": ticker})
+            if isinstance(data, list) and data:
+                return data[:8]
         return []
     
     def get_income_statements(self, ticker: str) -> List[Dict]:
@@ -127,21 +129,30 @@ class FMPFetcher:
         return []
     
     def get_insider_trades(self, ticker: str) -> List[Dict]:
-        data = self._get("insider-trading", {"symbol": ticker, "limit": "50"})
-        if isinstance(data, list):
-            return data
+        """Get insider trades. Tries multiple stable API path variants."""
+        for ep in ["insider-trading/latest", "insider-trading", "insider-trade"]:
+            data = self._get(ep, {"symbol": ticker, "limit": "50"})
+            if isinstance(data, list) and data:
+                return data
         return []
     
     def get_analyst_estimates(self, ticker: str) -> List[Dict]:
-        data = self._get("analyst-estimates", {"symbol": ticker, "limit": "4"})
-        if isinstance(data, list):
+        """Get analyst estimates. Tries with required period/page params."""
+        data = self._get("analyst-estimates", {"symbol": ticker, "period": "quarter", "page": "0", "limit": "4"})
+        if isinstance(data, list) and data:
+            return data
+        # Fallback: try annual
+        data = self._get("analyst-estimates", {"symbol": ticker, "period": "annual", "page": "0", "limit": "4"})
+        if isinstance(data, list) and data:
             return data
         return []
     
     def get_analyst_recommendations(self, ticker: str) -> Dict:
-        data = self._get("analyst-recommendations", {"symbol": ticker})
-        if isinstance(data, list) and data:
-            return data[0]
+        """Get analyst recommendations. Tries multiple path variants."""
+        for ep in ["analyst-recommendations", "analyst-stock-recommendations", "recommendations"]:
+            data = self._get(ep, {"symbol": ticker})
+            if isinstance(data, list) and data:
+                return data[0]
         return {}
     
     def get_price_target_consensus(self, ticker: str) -> Dict:
@@ -186,35 +197,40 @@ class FMPFetcher:
         return []
     
     def get_grades(self, ticker: str) -> List[Dict]:
-        """Get analyst grades (upgrades/downgrades)."""
-        data = self._get("stock-grade", {"symbol": ticker, "limit": "10"})
-        if isinstance(data, list):
-            return data
+        """Get analyst grades (upgrades/downgrades). Tries multiple path variants."""
+        for ep in ["grades", "stock-grade", "grades-summary"]:
+            data = self._get(ep, {"symbol": ticker, "limit": "10"})
+            if isinstance(data, list) and data:
+                return data
         return []
     
     def get_earnings_transcript(self, ticker: str, year: int = None, quarter: int = None) -> str:
-        """Get the most recent earnings call transcript text."""
-        # First get available dates
-        dates = self._get("earning-call-transcript-available-dates", {"symbol": ticker})
-        if not isinstance(dates, list) or not dates:
-            return ""
+        """Get the most recent earnings call transcript text.
+        Tries FMP first, falls back to API Ninjas if configured."""
+        # Try FMP - multiple path variants for transcript dates
+        dates = None
+        for ep in ["earning-call-transcript-available-dates", "earnings-transcript-list", "earning-transcript-dates"]:
+            try:
+                dates = self._get(ep, {"symbol": ticker})
+                if isinstance(dates, list) and dates:
+                    break
+            except Exception:
+                continue
         
-        # Use most recent
-        latest = dates[0]
-        y = year or latest.get("year") or latest.get("fiscalYear")
-        q = quarter or latest.get("quarter") or latest.get("fiscalPeriod")
-        if not y or not q:
-            return ""
+        if isinstance(dates, list) and dates:
+            latest = dates[0]
+            y = year or latest.get("year") or latest.get("fiscalYear")
+            q = quarter or latest.get("quarter") or latest.get("fiscalPeriod")
+            if y and q:
+                if isinstance(q, str):
+                    q = q.replace("Q", "").strip()
+                for ep in ["earning-call-transcript", "earnings-transcript"]:
+                    data = self._get(ep, {"symbol": ticker, "year": str(y), "quarter": str(q)})
+                    if isinstance(data, list) and data:
+                        return data[0].get("content", "") or ""
+                    elif isinstance(data, dict) and data.get("content"):
+                        return data.get("content", "")
         
-        # Normalize quarter — handle "Q1" vs 1
-        if isinstance(q, str):
-            q = q.replace("Q", "").strip()
-        
-        data = self._get("earning-call-transcript", {"symbol": ticker, "year": str(y), "quarter": str(q)})
-        if isinstance(data, list) and data:
-            return data[0].get("content", "") or ""
-        elif isinstance(data, dict):
-            return data.get("content", "") or ""
         return ""
     
     def get_share_float(self, ticker: str) -> Dict:
@@ -225,24 +241,81 @@ class FMPFetcher:
         return {}
     
     def get_senate_trades(self, ticker: str = "") -> List[Dict]:
-        """Get recent Senate trading activity."""
+        """Get recent Senate trading activity. Tries multiple path variants."""
         params = {"limit": "50"}
         if ticker:
             params["symbol"] = ticker
-        data = self._get("senate-trading-rss-feed", params)
-        if isinstance(data, list):
-            return data
+        for ep in ["senate-trading-rss-feed", "senate-trading", "senate-disclosure", "senate-trade"]:
+            data = self._get(ep, dict(params))
+            if isinstance(data, list) and data:
+                return data
         return []
     
     def get_house_trades(self, ticker: str = "") -> List[Dict]:
-        """Get recent House trading activity."""
+        """Get recent House trading activity. Tries multiple path variants."""
         params = {"limit": "50"}
         if ticker:
             params["symbol"] = ticker
-        data = self._get("house-disclosure-rss-feed", params)
-        if isinstance(data, list):
-            return data
+        for ep in ["house-disclosure-rss-feed", "house-disclosure", "house-trade"]:
+            data = self._get(ep, dict(params))
+            if isinstance(data, list) and data:
+                return data
         return []
+
+
+# ═══════════════════════════════════════════
+# API NINJAS — EARNINGS TRANSCRIPTS (FREE)
+# ═══════════════════════════════════════════
+
+class APINinjasTranscriptFetcher:
+    """Fetches earnings call transcripts from API Ninjas (free tier)."""
+    
+    BASE_URL = "https://api.api-ninjas.com/v1"
+    
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+    
+    def get_transcript(self, ticker: str, year: int = None, quarter: int = None) -> str:
+        """Get the most recent earnings call transcript for a ticker."""
+        params = {"ticker": ticker}
+        if year and quarter:
+            params["year"] = str(year)
+            params["quarter"] = str(quarter)
+        
+        url = f"{self.BASE_URL}/earningstranscript?{urllib.parse.urlencode(params)}"
+        try:
+            req = urllib.request.Request(url, headers={
+                "X-Api-Key": self.api_key,
+                "Accept": "application/json",
+                "User-Agent": "ShortSight/1.0"
+            })
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = json.loads(resp.read().decode())
+            
+            if isinstance(data, dict):
+                return data.get("transcript", "")
+            return ""
+        except Exception as e:
+            print(f"[APINinjas] Transcript error for {ticker}: {e}")
+            return ""
+    
+    def get_available_transcripts(self, ticker: str) -> List[Dict]:
+        """Search for available transcripts for a ticker."""
+        url = f"{self.BASE_URL}/earningstranscriptsearch?{urllib.parse.urlencode({'ticker': ticker})}"
+        try:
+            req = urllib.request.Request(url, headers={
+                "X-Api-Key": self.api_key,
+                "Accept": "application/json",
+                "User-Agent": "ShortSight/1.0"
+            })
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+            if isinstance(data, list):
+                return data
+            return []
+        except Exception as e:
+            print(f"[APINinjas] Transcript search error for {ticker}: {e}")
+            return []
 
 
 # ═══════════════════════════════════════════
