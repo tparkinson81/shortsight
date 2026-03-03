@@ -376,10 +376,24 @@ class ShortScanner:
             if not data:
                 return 0, []
             
+            # Stable API only provides float data, not short interest
+            # But low free float amplifies short squeeze risk — useful signal
+            free_float = data.get("freeFloat") or 0
+            float_shares = data.get("floatShares") or 0
+            outstanding = data.get("outstandingShares") or 0
+            
+            # Low free float = higher volatility, easier to squeeze
+            if 0 < free_float < 30:
+                score += 3
+                flags.append(f"Low free float: {free_float:.1f}% — limited supply amplifies moves")
+            elif 0 < free_float < 50:
+                score += 1
+                flags.append(f"Free float: {free_float:.1f}%")
+            
+            # Also try the short interest fields in case they exist on higher plans
             short_pct = data.get("shortPercentOfSharesOutstanding") or data.get("shortPercentFloat") or 0
             short_ratio = data.get("shortRatio") or data.get("daysToCover") or 0
             
-            # Normalize — some APIs return as decimal, some as percentage
             if isinstance(short_pct, (int, float)) and short_pct > 0:
                 if short_pct < 1:
                     short_pct = short_pct * 100
@@ -411,7 +425,7 @@ class ShortScanner:
     
     # ── VALUATION (15 pts) — key-metrics ──
     
-    def score_valuation(self, ticker: str) -> Tuple[int, List[str]]:
+    def score_valuation(self, ticker: str, profile: Dict) -> Tuple[int, List[str]]:
         """Score overvaluation signals from key metrics."""
         score = 0
         flags = []
@@ -421,65 +435,59 @@ class ShortScanner:
             if not m:
                 return 0, []
             
-            pe = m.get("peRatio", 0)
-            ps = m.get("priceToSalesRatio", 0)
-            pb = m.get("pbRatio", 0)
+            ev_sales = m.get("evToSales", 0)
             ev_ebitda = m.get("evToEbitda", 0)
-            peg = m.get("pegRatio", 0)
-            de = m.get("debtToEquity", 0)
-            roe = m.get("roe", 0)
+            ev_fcf = m.get("evToFreeCashFlow", 0)
+            net_debt_ebitda = m.get("netDebtToEBITDA", 0)
+            graham = m.get("grahamNumber", 0)
+            price = profile.get("price", 0) or 0
             
-            # P/E overvaluation
-            if pe > 80:
+            # EV/Sales
+            if ev_sales > 20:
                 score += 4
-                flags.append(f"Extremely high P/E: {pe:.0f}x — priced for perfection")
-            elif pe > 50:
+                flags.append(f"Extreme EV/Sales: {ev_sales:.1f}x — revenue multiple stretched")
+            elif ev_sales > 10:
                 score += 3
-                flags.append(f"Very high P/E: {pe:.0f}x")
-            elif pe > 35:
-                score += 2
-                flags.append(f"Elevated P/E: {pe:.0f}x")
-            elif pe < 0:
-                score += 2
-                flags.append(f"Negative earnings (P/E: {pe:.0f}x)")
-            
-            # P/S overvaluation
-            if ps > 20:
-                score += 3
-                flags.append(f"Extreme P/S: {ps:.1f}x — revenue multiple stretched")
-            elif ps > 10:
-                score += 2
-                flags.append(f"High P/S: {ps:.1f}x")
-            elif ps > 6:
+                flags.append(f"High EV/Sales: {ev_sales:.1f}x")
+            elif ev_sales > 6:
                 score += 1
-                flags.append(f"Elevated P/S: {ps:.1f}x")
+                flags.append(f"Elevated EV/Sales: {ev_sales:.1f}x")
             
             # EV/EBITDA
-            if ev_ebitda > 40:
-                score += 3
+            if ev_ebitda > 50:
+                score += 4
                 flags.append(f"EV/EBITDA: {ev_ebitda:.0f}x — extremely expensive")
-            elif ev_ebitda > 25:
-                score += 2
+            elif ev_ebitda > 30:
+                score += 3
                 flags.append(f"EV/EBITDA: {ev_ebitda:.0f}x — rich valuation")
+            elif ev_ebitda > 20:
+                score += 1
+                flags.append(f"EV/EBITDA: {ev_ebitda:.0f}x")
             elif ev_ebitda < 0:
                 score += 2
                 flags.append(f"Negative EBITDA (EV/EBITDA: {ev_ebitda:.0f}x)")
             
-            # PEG ratio (growth-adjusted)
-            if peg > 3:
+            # EV/FCF
+            if ev_fcf > 100:
+                score += 3
+                flags.append(f"EV/FCF: {ev_fcf:.0f}x — extreme cash flow multiple")
+            elif ev_fcf > 50:
                 score += 2
-                flags.append(f"PEG ratio {peg:.1f}x — overpriced relative to growth")
-            elif peg > 2:
-                score += 1
-                flags.append(f"PEG ratio {peg:.1f}x — growth not justifying price")
+                flags.append(f"EV/FCF: {ev_fcf:.0f}x — expensive on cash flow basis")
+            elif ev_fcf < 0:
+                score += 2
+                flags.append(f"Negative free cash flow (EV/FCF: {ev_fcf:.0f}x)")
             
-            # High debt + low ROE combo (weak fundamentals + leverage)
-            if de > 3 and roe < 10:
+            # Graham Number
+            if graham > 0 and price > 0 and price > graham * 3:
+                score += 3
+                flags.append(f"Price ${price:.0f} is {price/graham:.1f}x Graham Number (${graham:.0f})")
+            elif graham > 0 and price > graham * 2:
                 score += 2
-                flags.append(f"High leverage (D/E: {de:.1f}x) with weak returns (ROE: {roe:.1f}%)")
-            elif de > 5:
+                flags.append(f"Trading at {price/graham:.1f}x Graham Number")
+            elif graham > 0 and price > graham * 1.5:
                 score += 1
-                flags.append(f"Very high debt/equity: {de:.1f}x")
+                flags.append(f"Above Graham Number ({price/graham:.1f}x)")
             
         except Exception as e:
             print(f"  [Valuation] Error for {ticker}: {e}")
@@ -801,7 +809,7 @@ class ShortScanner:
             c.short_interest_score, c.short_interest_flags = self.score_short_interest(ticker)
             time.sleep(0.2)
             
-            c.valuation_score, c.valuation_flags = self.score_valuation(ticker)
+            c.valuation_score, c.valuation_flags = self.score_valuation(ticker, profile)
             time.sleep(0.2)
             
             c.price_action_score, c.price_action_flags = self.score_price_action(ticker, c.price, profile)
