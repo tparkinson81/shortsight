@@ -131,6 +131,25 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);min-
 .set-total-label{font-size:13px;font-weight:600;color:var(--text2)}
 .set-total-val{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--red)}
 @media(max-width:640px){.header{padding:14px 18px}.main{padding:18px}.nav{padding:0 18px}.nav-tab{padding:10px 14px;font-size:12px}.g4{grid-template-columns:repeat(2,1fr)}.cn{max-width:120px}}
+/* Research report */
+.res-section{margin-bottom:14px}
+.res-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:var(--card2);border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;cursor:pointer;transition:background 0.15s;user-select:none}
+.res-header:hover{background:var(--raised)}
+.res-header.collapsed{border-radius:var(--radius)}
+.res-htitle{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
+.res-hcount{font-size:10px;color:var(--text3);font-family:'JetBrains Mono',monospace}
+.res-arrow{font-size:10px;color:var(--text3);transition:transform 0.2s}
+.res-body{border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);overflow:hidden}
+.res-field{display:flex;border-bottom:1px solid var(--border);font-size:13px}
+.res-field:last-child{border-bottom:none}
+.res-label{width:220px;min-width:220px;padding:10px 16px;background:rgba(255,255,255,0.015);color:var(--text2);font-weight:600;border-right:1px solid var(--border)}
+.res-value{flex:1;padding:10px 16px;color:var(--text);line-height:1.6;white-space:pre-wrap}
+.res-loading{color:var(--text3);font-style:italic}
+.res-progress{display:flex;align-items:center;gap:12px;padding:16px 0;margin-bottom:16px}
+.res-pbar{flex:1;height:4px;background:var(--graphite2);border-radius:2px;overflow:hidden}
+.res-pfill{height:100%;background:var(--red);border-radius:2px;transition:width 0.5s ease}
+.res-ptext{font-size:11px;color:var(--text3);font-family:'JetBrains Mono',monospace;min-width:120px;text-align:right}
+@media(max-width:640px){.res-label{width:140px;min-width:140px;font-size:12px}.res-value{font-size:12px}}
 </style>
 </head>
 <body>
@@ -187,10 +206,13 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);min-
 </div>
 <!-- DEEP DIVE TAB -->
 <div class="tc" id="tab-deepdive">
-<div style="display:flex;gap:10px;align-items:center;margin-bottom:20px">
+<div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
 <input class="inp" id="ddI" placeholder="Enter ticker (e.g. TSLA)" style="max-width:280px" onkeydown="if(event.key==='Enter')runDD()">
-<button class="btn bp bs" onclick="runDD()">Analyze</button></div>
-<div id="ddR"><div class="empty"><p>Enter a ticker to run deep analysis.</p></div></div>
+<button class="btn bp bs" onclick="runDD()" id="ddBtn">Quick Scan</button>
+<button class="btn bo bs" onclick="runResearch()" id="resBtn">Deep Research</button>
+</div>
+<div style="font-size:11px;color:var(--text3);margin-bottom:20px">Quick Scan runs the 10-dimension scorer. Deep Research fills a 15-section short thesis template via AI with live web data.</div>
+<div id="ddR"><div class="empty"><p>Enter a ticker to analyze.</p></div></div>
 </div>
 <!-- SETTINGS TAB -->
 <div class="tc" id="tab-settings">
@@ -379,6 +401,146 @@ function rmTk(s){api('POST','/api/watchlist/remove/'+s).then(function(d){toast(d
 function loadNews(){var c=document.getElementById('nfeed');c.innerHTML='<div class="empty"><p>Loading bearish news...</p></div>';dbg('Loading news feed');api('GET','/api/news').then(function(d){var a=d.articles||[];if(!a.length){c.innerHTML='<div class="empty"><p>No news returned.</p></div>';dbg('News: 0 articles',true);return}dbg('News: '+a.length+' articles');var neg=a.filter(function(x){return x.sentiment&&x.sentiment.score<0});if(!neg.length)neg=a;c.innerHTML=neg.slice(0,30).map(function(x){var s=x.sentiment||{};return'<div class="ni"><div class="nit"><a href="'+E(x.url)+'" target="_blank">'+E(x.title)+'</a></div><div class="nim">'+(s.score!=null?'<span class="hls '+(s.score<0?'hn':'hp')+'">'+s.score.toFixed(2)+'</span>':'')+'<span>'+E(x.source)+'</span><span>'+(x.published?new Date(x.published).toLocaleDateString():'')+'</span></div></div>'}).join('')}).catch(function(e){c.innerHTML='<div class="empty"><p>Error: '+E(e.message)+'</p></div>';dbg('News error: '+e.message,true)})}
 function runDD(){var t=document.getElementById('ddI').value.trim().toUpperCase();if(!t){toast('Enter a ticker');return}ddTk(t)}
 function ddTk(t){document.querySelectorAll('.nav-tab').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.tc').forEach(function(x){x.classList.remove('active')});document.querySelector('[data-tab="deepdive"]').classList.add('active');document.getElementById('tab-deepdive').classList.add('active');document.getElementById('ddI').value=t;var c=document.getElementById('ddR');c.innerHTML='<div class="empty"><p>Analyzing '+E(t)+'...<br><span style="font-size:11px;color:var(--text3)">This takes 15\u201330 seconds</span></p></div>';dbg('Deep dive: '+t);api('GET','/api/scan/'+t).then(function(d){if(d.error){c.innerHTML='<div class="empty"><p>'+E(d.error)+'</p></div>';dbg('DD: '+d.error);return}dbg('DD complete: '+t+' \u2014 '+d.conviction);c.innerHTML=rCard(recalcCandidate(d))}).catch(function(e){c.innerHTML='<div class="empty"><p>Error: '+E(e.message)+'</p></div>';dbg('DD error: '+e.message,true)})}
+
+// ── DEEP RESEARCH ──
+var RESEARCH_SECTIONS = {
+  "Business":["Company Name","Ticker","Description","Industry","Market Capitalization","Fully Diluted Shares","Short Interest","Total Debt","EBITDA","Adj. Free Cash Flow","Origin of Idea"],
+  "10K and Financials":["History","Accounting Policy (Changes)","Revenue Recognition","Business","Undervalued Property","Unions","Litigation","Management Contracts","Competitive Position","Risk Disclosure","Atypical Line Items","Off Balance Sheet Liabilities (SPV, Contingency, Operating Leases, Guarantees)","Debt Schedule","Valuation Allowance","NOLs","Inventories (FIFO/LIFO)","Tax Rate","Depreciation Expense / Gross PPE","Operating Cash Flow / Net Income","Margins Rising / Falling","Cap Ex Rising / Falling","Liquidity","Other Comprehensive Income / Shareholder Equity","Options Use"],
+  "Competitive Advantage":["Summary","Company Age","Industry Age","ROE (Rising / Falling)","Pre-Tax Margin (Rising / Falling)","Gross Margin (Rising / Falling)","Technology Threat","Market Share (Rising / Falling)","Strategy"],
+  "Pension and OPEB":["Pension Deficit / Excess","Discount Rate","Expected Return","Total Added Liability"],
+  "10Q":["Covenants","Events since Quarter-end","Inventory Bloat","DSO Bloat","Deferred Revenue Comparable","Litigation Update","Reported Shares Outstanding"],
+  "Corporate Governance":["Proxy Filing Deadline","Related Party Transactions","Compensation","Number of Directors","Classified","Term","Management Bonus Tied to","Employee Directors","Poison Pill","Golden Parachutes","Change of Control","Standstill Agreement","State of Incorporation","Share Classes (Dual / Supervoting)","Management Control via Share Ownership","Founding Family","Previous LBO, MBO","Previous Takeover Defense","Current Involvement of Investment Firm"],
+  "8K":["Auditor Comments","Offering Documents","Disclosure Statement","Shelf Registration","Secondary Purchase Offering","IPO Filing Date"],
+  "News":["X","Reddit","Substack","Seeking Alpha"],
+  "Comps":["Public Comps","Private Comps","Buyout Comps","Previous Bids"],
+  "Insider Trading":["Overall","Automatic Selling","Trend"],
+  "Earnings Call":["Date","Attendees","Commentary","Q&A"],
+  "Investigative Journalism":["Glassdoor Reviews","Data Search","FOIA"],
+  "Valuation":["Value Range","Current Price","Discount","Annual Sales","MVE / FCF","EV / EBITDA","Historical ROI","Industry Growth Rate"],
+  "Timeline and Catalysts":["Potential Catalysts"],
+  "Conclusion":["Management Quality","Competitive Position","Activism","Public Control","Downside","Overall"]
+};
+var SECTION_ICONS = {"Business":"\u{1F3E2}","10K and Financials":"\u{1F4CA}","Competitive Advantage":"\u{1F3AF}","Pension and OPEB":"\u{1F4B0}","10Q":"\u{1F4C4}","Corporate Governance":"\u{1F3DB}","8K":"\u{1F4E2}","News":"\u{1F4F0}","Comps":"\u{1F4C8}","Insider Trading":"\u{1F575}","Earnings Call":"\u{1F4DE}","Investigative Journalism":"\u{1F50D}","Valuation":"\u{1F4B5}","Timeline and Catalysts":"\u26A1","Conclusion":"\u2705"};
+
+function runResearch(){
+  var t=document.getElementById('ddI').value.trim().toUpperCase();
+  if(!t){toast('Enter a ticker');return}
+  // Navigate to deep dive tab
+  document.querySelectorAll('.nav-tab').forEach(function(x){x.classList.remove('active')});
+  document.querySelectorAll('.tc').forEach(function(x){x.classList.remove('active')});
+  document.querySelector('[data-tab="deepdive"]').classList.add('active');
+  document.getElementById('tab-deepdive').classList.add('active');
+  document.getElementById('ddI').value=t;
+  
+  var c=document.getElementById('ddR');
+  var sKeys=Object.keys(RESEARCH_SECTIONS);
+  var totalFields=0;
+  sKeys.forEach(function(k){totalFields+=RESEARCH_SECTIONS[k].length});
+  
+  // Build skeleton
+  var html='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="stitle">Deep Research: '+E(t)+'</div><button class="btn bo bs" onclick="exportResearch()" id="exportBtn" disabled>Export XLSX</button></div>';
+  html+='<div class="res-progress"><div class="res-pbar"><div class="res-pfill" id="resPfill" style="width:0%"></div></div><span class="res-ptext" id="resPtext">Starting research...</span></div>';
+  
+  sKeys.forEach(function(sn){
+    var fields=RESEARCH_SECTIONS[sn];
+    var icon=SECTION_ICONS[sn]||'\u{1F4CB}';
+    html+='<div class="res-section" id="res-sec-'+sn.replace(/[^a-zA-Z0-9]/g,'_')+'">';
+    html+='<div class="res-header" onclick="toggleResSection(this)"><div class="res-htitle">'+icon+' '+E(sn)+' <span class="res-hcount">'+fields.length+' fields</span></div><span class="res-arrow">\u25BC</span></div>';
+    html+='<div class="res-body">';
+    fields.forEach(function(f){
+      html+='<div class="res-field"><div class="res-label">'+E(f)+'</div><div class="res-value res-loading" id="res-f-'+sn.replace(/[^a-zA-Z0-9]/g,'_')+'-'+f.replace(/[^a-zA-Z0-9]/g,'_')+'">Waiting...</div></div>';
+    });
+    html+='</div></div>';
+  });
+  c.innerHTML=html;
+  
+  dbg('Deep Research: '+t+' ('+sKeys.length+' sections, '+totalFields+' fields)');
+  toast('Deep Research started on '+t+' — this takes 3-5 minutes');
+  document.getElementById('resBtn').disabled=true;
+  document.getElementById('resBtn').textContent='Researching...';
+  
+  // Call API
+  api('GET','/api/research/'+t).then(function(d){
+    if(d.error){
+      document.getElementById('resPtext').textContent='Error: '+d.error;
+      document.getElementById('resPfill').style.width='100%';
+      document.getElementById('resPfill').style.background='var(--red)';
+      dbg('Research error: '+d.error,true);
+      toast(d.error);
+      document.getElementById('resBtn').disabled=false;
+      document.getElementById('resBtn').textContent='Deep Research';
+      return;
+    }
+    
+    // Fill in all sections
+    window._lastResearch=d;
+    var sections=d.sections||{};
+    var filled=0;
+    Object.keys(sections).forEach(function(sn){
+      var sData=sections[sn];
+      var secId='res-sec-'+sn.replace(/[^a-zA-Z0-9]/g,'_');
+      Object.keys(sData).forEach(function(f){
+        var fId='res-f-'+sn.replace(/[^a-zA-Z0-9]/g,'_')+'-'+f.replace(/[^a-zA-Z0-9]/g,'_');
+        var el=document.getElementById(fId);
+        if(el){
+          el.textContent=sData[f]||'Not found';
+          el.classList.remove('res-loading');
+          filled++;
+        }
+      });
+    });
+    
+    // Mark any remaining as not found
+    document.querySelectorAll('.res-loading').forEach(function(el){
+      el.textContent='Not researched';
+      el.classList.remove('res-loading');
+    });
+    
+    document.getElementById('resPfill').style.width='100%';
+    document.getElementById('resPfill').style.background='var(--green)';
+    document.getElementById('resPtext').textContent='Complete — '+filled+'/'+totalFields+' fields filled';
+    document.getElementById('exportBtn').disabled=false;
+    document.getElementById('resBtn').disabled=false;
+    document.getElementById('resBtn').textContent='Deep Research';
+    dbg('Research complete: '+filled+' fields filled');
+    toast('Research complete for '+t);
+  }).catch(function(e){
+    document.getElementById('resPtext').textContent='Error: '+e.message;
+    document.getElementById('resPfill').style.background='var(--red)';
+    document.getElementById('resPfill').style.width='100%';
+    dbg('Research error: '+e.message,true);
+    document.getElementById('resBtn').disabled=false;
+    document.getElementById('resBtn').textContent='Deep Research';
+    // Mark loading fields
+    document.querySelectorAll('.res-loading').forEach(function(el){el.textContent='Error';el.classList.remove('res-loading')});
+  });
+}
+
+function toggleResSection(hdr){
+  var body=hdr.nextElementSibling;
+  var arrow=hdr.querySelector('.res-arrow');
+  if(body.style.display==='none'){
+    body.style.display='';
+    hdr.classList.remove('collapsed');
+    arrow.style.transform='';
+  } else {
+    body.style.display='none';
+    hdr.classList.add('collapsed');
+    arrow.style.transform='rotate(-90deg)';
+  }
+}
+
+function exportResearch(){
+  if(!window._lastResearch)return;
+  var d=window._lastResearch;
+  // Download as JSON (XLSX export would need a library)
+  var blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='ShortSight_Research_'+d.ticker+'_'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();URL.revokeObjectURL(url);
+  toast('Research exported as JSON');
+}
 
 // ── INIT ──
 loadSettings();renderDimToggles();
