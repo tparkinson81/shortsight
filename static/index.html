@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="mobile-web-app-capable" content="yes">
+<title>ShortSight — Short Thesis Scanner</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --navy: #00204e;
+  --navy-card: #002a65;
+  --navy-hover: #003175;
+  --navy-light: #003d8f;
+  --border: rgba(255,255,255,0.06);
+  --text-primary: #ffffff;
+  --text-secondary: #b8cce4;
+  --text-muted: #7a94b4;
+  --red: #ef4444;
+  --red-glow: rgba(239,68,68,0.15);
+  --amber: #f59e0b;
+  --green: #22c55e;
+  --purple: #a855f7;
+  --blue: #3b82f6;
+  --cyan: #06b6d4;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  background: var(--navy);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+/* ── HEADER ── */
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 24px; border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(0,32,78,0.95), rgba(0,32,78,0.85));
+  backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 100;
+}
+.logo { display:flex; align-items:center; gap:10px; }
+.logo-icon {
+  width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+  font-family:'JetBrains Mono',monospace; font-weight:700; font-size:14px;
+  background: linear-gradient(135deg, var(--red), #dc2626); color:white;
+  box-shadow: 0 2px 8px rgba(239,68,68,0.3);
+}
+.logo-text { font-size:20px; font-weight:700; letter-spacing:-0.5px; }
+.logo-text span { color: var(--red); }
+.header-status {
+  display:flex; align-items:center; gap:12px; font-size:12px; color:var(--text-muted);
+}
+.status-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+.status-dot.ok { background:var(--green); box-shadow:0 0 6px rgba(34,197,94,0.5); }
+.status-dot.scanning { background:var(--amber); animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ── NAV TABS ── */
+.nav { display:flex; gap:0; border-bottom:1px solid var(--border); padding:0 24px; background:var(--navy); overflow-x:auto; }
+.nav-tab {
+  padding:12px 20px; cursor:pointer; font-size:13px; font-weight:600;
+  color:var(--text-muted); border-bottom:2px solid transparent;
+  transition: all 0.2s; white-space:nowrap; display:flex; align-items:center; gap:6px;
+}
+.nav-tab:hover { color:var(--text-secondary); }
+.nav-tab.active { color:white; border-bottom-color:var(--red); }
+.tab-badge {
+  font-size:10px; padding:1px 6px; border-radius:10px;
+  font-family:'JetBrains Mono',monospace; font-weight:600;
+}
+
+/* ── LAYOUT ── */
+.main { padding:24px; max-width:1400px; margin:0 auto; }
+.tab-content { display:none; }
+.tab-content.active { display:block; }
+.section-title { font-size:16px; font-weight:700; letter-spacing:-0.3px; }
+.g1 { display:grid; grid-template-columns:1fr; gap:16px; }
+.g2 { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px; }
+.g4 { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; }
+.mb-12 { margin-bottom:12px; }
+.mb-16 { margin-bottom:16px; }
+.mb-20 { margin-bottom:20px; }
+.mb-24 { margin-bottom:24px; }
+
+/* ── CARDS ── */
+.card {
+  background: var(--navy-card); border:1px solid var(--border);
+  border-radius:12px; padding:16px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.card:hover { border-color: rgba(255,255,255,0.1); }
+.card.np { padding:0; }
+.stat-label { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; }
+.stat-val { font-size:24px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+
+/* ── CANDIDATE CARDS ── */
+.cand-head {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:16px; border-bottom:1px solid var(--border);
+}
+.cand-ticker { display:flex; align-items:baseline; gap:8px; }
+.cand-sym { font-size:20px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+.cand-name { font-size:12px; color:var(--text-muted); }
+.cand-score {
+  display:flex; align-items:center; gap:10px;
+}
+.cand-score-num {
+  font-size:28px; font-weight:700; font-family:'JetBrains Mono',monospace;
+}
+.cand-badge {
+  font-size:10px; font-weight:700; padding:3px 10px; border-radius:4px;
+  text-transform:uppercase; letter-spacing:0.5px;
+}
+.cand-badge.very-strong { background:var(--red); color:white; }
+.cand-badge.strong { background:var(--amber); color:#000; }
+.cand-badge.moderate { background:var(--navy-light); color:var(--text-secondary); border:1px solid var(--border); }
+.cand-badge.weak { background:var(--navy-hover); color:var(--text-muted); }
+
+.cand-body { padding:16px; }
+
+/* Score bar */
+.score-bar { display:flex; gap:2px; height:6px; border-radius:3px; overflow:hidden; margin-bottom:10px; }
+.score-bar div { transition:width 0.5s ease; }
+.score-legend { display:flex; gap:8px; flex-wrap:wrap; font-size:10px; color:var(--text-muted); margin-bottom:12px; }
+.score-legend span { display:flex; align-items:center; gap:3px; }
+.score-legend .dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+
+/* Flags */
+.flag {
+  font-size:12px; color:var(--text-secondary); padding:6px 0;
+  border-bottom:1px solid rgba(255,255,255,0.03);
+  line-height:1.5;
+}
+.flag:last-child { border-bottom:none; }
+.flag-icon { margin-right:4px; }
+.more-flags { font-size:11px; color:var(--text-muted); padding-top:4px; cursor:pointer; }
+.more-flags:hover { color:var(--text-secondary); }
+
+/* Headlines */
+.headline {
+  padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.03);
+  font-size:12px;
+}
+.headline:last-child { border-bottom:none; }
+.headline-title { color:var(--text-secondary); line-height:1.4; }
+.headline-meta { color:var(--text-muted); font-size:10px; margin-top:2px; }
+.headline-score {
+  font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600;
+  padding:1px 5px; border-radius:3px; display:inline-block;
+}
+.hs-neg { background:var(--red-glow); color:var(--red); }
+.hs-pos { background:rgba(34,197,94,0.15); color:var(--green); }
+
+/* Thesis toggle */
+.thesis-toggle {
+  padding:14px 16px; border-top:1px solid var(--border);
+  cursor:pointer; display:flex; justify-content:space-between; align-items:center;
+}
+.thesis-toggle:hover { background:rgba(255,255,255,0.02); }
+.thesis-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:1px; color:var(--text-muted); }
+.thesis-arrow { font-size:11px; color:var(--text-muted); transition:transform 0.2s; }
+.thesis-body {
+  max-height:0; overflow:hidden; transition:max-height 0.3s ease, padding 0.3s ease;
+  font-size:13px; line-height:1.7; color:var(--text-secondary);
+  white-space:pre-line; padding:0 16px;
+}
+.thesis-body.open { max-height:2000px; padding:0 16px 16px 16px; }
+
+/* Catalyst */
+.catalyst {
+  margin-top:10px; font-size:12px; color:var(--amber);
+  padding:8px 12px; background:rgba(245,158,11,0.08); border-radius:6px;
+}
+
+/* ── BUTTONS ── */
+.btn {
+  padding:8px 16px; border-radius:8px; font-size:13px; font-weight:600;
+  cursor:pointer; border:none; transition:all 0.2s; font-family:'DM Sans',sans-serif;
+}
+.btn-primary { background:white; color:var(--navy); }
+.btn-primary:hover { background:#e2e8f0; }
+.btn-danger { background:var(--red); color:white; }
+.btn-danger:hover { background:#dc2626; }
+.btn-outline { background:transparent; color:white; border:1px solid rgba(255,255,255,0.2); }
+.btn-outline:hover { border-color:rgba(255,255,255,0.4); background:rgba(255,255,255,0.05); }
+.btn-sm { padding:6px 12px; font-size:12px; }
+.btn:disabled { opacity:0.5; cursor:not-allowed; }
+
+/* ── INPUTS ── */
+.input {
+  padding:10px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.15);
+  background:rgba(255,255,255,0.05); color:white; font-size:14px;
+  font-family:'DM Sans',sans-serif; width:100%;
+}
+.input:focus { outline:none; border-color:var(--red); }
+.input::placeholder { color:var(--text-muted); }
+
+/* ── MODALS ── */
+.modal-bg {
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6);
+  z-index:200; align-items:center; justify-content:center; padding:20px;
+}
+.modal-bg.open { display:flex; }
+.modal {
+  background:var(--navy-card); border:1px solid var(--border);
+  border-radius:16px; padding:24px; max-width:440px; width:100%;
+}
+.modal h2 { font-size:18px; margin-bottom:12px; }
+
+/* ── TOAST ── */
+.toast-container { position:fixed; bottom:20px; right:20px; z-index:300; }
+.toast {
+  background:var(--navy-card); border:1px solid var(--border);
+  padding:12px 20px; border-radius:10px; margin-top:8px;
+  font-size:13px; box-shadow:0 4px 20px rgba(0,0,0,0.3);
+  animation: fadeIn 0.3s ease;
+}
+@keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+
+/* ── EMPTY STATE ── */
+.empty { text-align:center; padding:60px 20px; color:var(--text-muted); }
+.empty-icon { font-size:48px; margin-bottom:12px; }
+.empty-text { font-size:14px; line-height:1.6; }
+
+/* ── NEWS FEED ── */
+.news-item {
+  padding:14px 16px; border-bottom:1px solid var(--border);
+  transition: background 0.2s;
+}
+.news-item:hover { background:rgba(255,255,255,0.02); }
+.news-title { font-size:14px; line-height:1.5; margin-bottom:4px; }
+.news-title a { color:var(--text-primary); text-decoration:none; }
+.news-title a:hover { text-decoration:underline; }
+.news-meta { font-size:11px; color:var(--text-muted); display:flex; gap:12px; align-items:center; }
+
+/* ── DEEP DIVE ── */
+.dd-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+@media (max-width:768px) { .dd-grid { grid-template-columns:1fr; } }
+.dd-section { margin-bottom:20px; }
+.dd-section-title { font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:10px; }
+
+/* ── MOBILE ── */
+@media (max-width:640px) {
+  .header { padding:12px 16px; }
+  .main { padding:16px; }
+  .nav { padding:0 16px; }
+  .nav-tab { padding:10px 14px; font-size:12px; }
+  .g4 { grid-template-columns:repeat(2,1fr); }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ HEADER ═══ -->
+<header class="header">
+  <div class="logo">
+    <div class="logo-icon">SS</div>
+    <div class="logo-text">Short<span>Sight</span></div>
+  </div>
+  <div class="header-status">
+    <span id="statusText">Initializing...</span>
+    <span class="status-dot" id="statusDot"></span>
+  </div>
+</header>
+
+<!-- ═══ NAV ═══ -->
+<nav class="nav">
+  <div class="nav-tab active" data-tab="scanner">Scanner <span class="tab-badge" id="scanCount" style="background:var(--red);color:white">0</span></div>
+  <div class="nav-tab" data-tab="watchlist">Watchlist <span class="tab-badge" id="wlCount" style="background:var(--blue);color:white">0</span></div>
+  <div class="nav-tab" data-tab="news">News Feed</div>
+  <div class="nav-tab" data-tab="deepdive">Deep Dive</div>
+</nav>
+
+<!-- ═══ MAIN ═══ -->
+<div class="main">
+
+  <!-- ═══ SCANNER TAB ═══ -->
+  <div class="tab-content active" id="tab-scanner">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <div>
+        <div class="section-title" style="margin-bottom:4px">Short Thesis Scanner</div>
+        <div style="font-size:13px;color:var(--text-secondary)" id="scanMeta">Only shows stocks with at least one critical-level signal (80%+). No noise — only high-conviction findings.</div>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="triggerScan()" id="scanBtn">🔍 Run Scan</button>
+    </div>
+    <div class="g4 mb-20">
+      <div class="card"><div class="stat-label">Universe</div><div class="stat-val" id="sUniv" style="color:var(--blue)">—</div></div>
+      <div class="card"><div class="stat-label">Flagged</div><div class="stat-val" id="sFound" style="color:var(--red)">—</div></div>
+      <div class="card"><div class="stat-label">Strong+</div><div class="stat-val" id="sStrong" style="color:var(--amber)">—</div></div>
+      <div class="card"><div class="stat-label">Last Scan</div><div class="stat-val" id="sTime" style="font-size:14px;color:var(--text-secondary)">—</div></div>
+    </div>
+    <div class="section-title mb-16">High-Conviction Signals — Ranked by Strength</div>
+    <div id="candidateList" class="g1 mb-20">
+      <div class="empty"><div class="empty-icon">🔻</div><div class="empty-text">No scan results yet.<br>Click "Run Scan" to screen the S&P 500 for short opportunities.</div></div>
+    </div>
+  </div>
+
+  <!-- ═══ WATCHLIST TAB ═══ -->
+  <div class="tab-content" id="tab-watchlist">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <div class="section-title">Watchlist</div>
+      <button class="btn btn-primary btn-sm" onclick="openModal('addTickerModal')">+ Add Ticker</button>
+    </div>
+    <div id="watchlistContent" class="g2">
+      <div class="empty"><div class="empty-icon">👁</div><div class="empty-text">Your watchlist is empty.<br>Add tickers to monitor for short signals.</div></div>
+    </div>
+  </div>
+
+  <!-- ═══ NEWS FEED TAB ═══ -->
+  <div class="tab-content" id="tab-news">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <div class="section-title">Bearish News Feed</div>
+      <button class="btn btn-outline btn-sm" onclick="refreshNewsFeed()">↻ Refresh</button>
+    </div>
+    <div class="card np" id="newsFeed">
+      <div class="empty"><div class="empty-icon">📰</div><div class="empty-text">Loading news feed...</div></div>
+    </div>
+  </div>
+
+  <!-- ═══ DEEP DIVE TAB ═══ -->
+  <div class="tab-content" id="tab-deepdive">
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:20px">
+      <input class="input" id="ddInput" placeholder="Enter ticker symbol (e.g. TSLA)" style="max-width:280px">
+      <button class="btn btn-danger btn-sm" onclick="runDeepDive()">Analyze</button>
+    </div>
+    <div id="ddResults">
+      <div class="empty"><div class="empty-icon">🔬</div><div class="empty-text">Enter a ticker above to run a deep fundamental & sentiment analysis.</div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══ ADD TICKER MODAL ═══ -->
+<div class="modal-bg" id="addTickerModal">
+  <div class="modal">
+    <h2>Add to Watchlist</h2>
+    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">Enter a stock ticker to monitor for short signals.</p>
+    <input class="input" id="addTickerInput" placeholder="e.g. TSLA" style="margin-bottom:16px">
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-outline btn-sm" onclick="closeModal('addTickerModal')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="addTicker()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TOAST ═══ -->
+<div class="toast-container" id="toasts"></div>
+
+<script>
+// ═══ STATE ═══
+var API_BASE = window.location.origin;
+var state = { scan: {}, watchlist: [], activeTab: 'scanner' };
+
+// ═══ UTILITIES ═══
+function esc(s) { if (!s) return ''; var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function toast(msg) {
+  var c = document.getElementById('toasts');
+  var t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(function() { t.remove(); }, 4000);
+}
+
+function apiCall(method, path, body) {
+  var opts = { method: method };
+  if (body) {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = JSON.stringify(body);
+  }
+  return fetch(API_BASE + path, opts).then(function(r) {
+    if (!r.ok) throw new Error('API error: ' + r.status);
+    return r.json();
+  });
+}
+
+function openModal(id) { var el = document.getElementById(id); if (el) el.classList.add('open'); }
+function closeModal(id) { var el = document.getElementById(id); if (el) el.classList.remove('open'); }
+
+document.querySelectorAll('.modal-bg').forEach(function(m) {
+  m.addEventListener('click', function(e) { if (e.target === m) m.classList.remove('open'); });
+});
+
+// ═══ TABS ═══
+document.querySelectorAll('.nav-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
+    tab.classList.add('active');
+    var target = tab.getAttribute('data-tab');
+    document.getElementById('tab-' + target).classList.add('active');
+    state.activeTab = target;
+    if (target === 'news' && !document.getElementById('newsFeed').querySelector('.news-item')) {
+      refreshNewsFeed();
+    }
+  });
+});
+
+// ═══ FETCH DATA ═══
+function fetchDashboard() {
+  apiCall('GET', '/api/dashboard').then(function(d) {
+    state.scan = d.scan || {};
+    state.watchlist = d.watchlist || [];
+    renderScanner(d.scan || {});
+    renderWatchlist(d.watchlist || []);
+    updateStatus(d.status || {});
+  }).catch(function(e) { console.error('Dashboard fetch error:', e); });
+}
+
+function updateStatus(s) {
+  var dot = document.getElementById('statusDot');
+  var txt = document.getElementById('statusText');
+  if (s.is_scanning) {
+    dot.className = 'status-dot scanning';
+    txt.textContent = 'Scanning...';
+  } else if (s.scanner_ready) {
+    dot.className = 'status-dot ok';
+    txt.textContent = 'Ready';
+  } else {
+    dot.className = 'status-dot';
+    txt.textContent = 'Not initialized';
+  }
+}
+
+// ═══ SCANNER ═══
+function triggerScan() {
+  var btn = document.getElementById('scanBtn');
+  btn.textContent = '⏳ Scanning...';
+  btn.disabled = true;
+  toast('Short scan started — screening S&P 500...');
+  apiCall('POST', '/api/scan').catch(function() {});
+  var checks = 0;
+  var checker = setInterval(function() {
+    checks++;
+    fetchDashboard();
+    if ((!document.getElementById('scanBtn').disabled) || checks > 30) {
+      clearInterval(checker);
+    }
+    var s = state.scan;
+    if (s && s.found > 0 && s.scanned_at) {
+      clearInterval(checker);
+      btn.textContent = '🔍 Run Scan';
+      btn.disabled = false;
+      toast(s.found + ' short candidates found!');
+    }
+    if (checks > 30) {
+      btn.textContent = '🔍 Run Scan';
+      btn.disabled = false;
+    }
+  }, 15000);
+}
+
+function renderScanner(scan) {
+  var cands = scan.candidates || [];
+  var bk = scan.breakdown || {};
+  document.getElementById('scanCount').textContent = cands.length;
+  document.getElementById('sUniv').textContent = scan.universe_size || '—';
+  document.getElementById('sFound').textContent = scan.found || '—';
+  document.getElementById('sStrong').textContent = ((bk.very_strong || 0) + (bk.strong || 0)) || '—';
+  if (scan.scanned_at) {
+    var dt = new Date(scan.scanned_at + 'Z');
+    document.getElementById('sTime').textContent = dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    document.getElementById('scanMeta').textContent = scan.universe_size + ' stocks screened in ' + (scan.scan_seconds || '?') + 's — ' + (scan.found || 0) + ' short candidates';
+  }
+  var list = document.getElementById('candidateList');
+  if (!cands.length) {
+    list.innerHTML = '<div class="empty"><div class="empty-icon">🔻</div><div class="empty-text">No scan results yet.<br>Click "Run Scan" to screen the S&P 500.</div></div>';
+    return;
+  }
+  list.innerHTML = cands.map(function(c) { return renderCandidateCard(c); }).join('');
+}
+
+function renderCandidateCard(c) {
+  var scores = c.scores || {};
+  var flags = c.flags || {};
+  var signals = c.signals || [];
+  var badgeClass = c.conviction === 'Very Strong' ? 'very-strong' : c.conviction === 'Strong' ? 'strong' : c.conviction === 'Moderate' ? 'moderate' : 'weak';
+  
+  // Signal strength tags (critical + elevated only)
+  var signalTags = '';
+  if (signals.length) {
+    signalTags = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">';
+    signals.forEach(function(s) {
+      var icon = s.tier === 'critical' ? '🔥' : '⚠️';
+      var bg = s.tier === 'critical' ? 'var(--red-glow)' : 'rgba(245,158,11,0.12)';
+      var color = s.tier === 'critical' ? 'var(--red)' : 'var(--amber)';
+      var border = s.tier === 'critical' ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.25)';
+      signalTags += '<span style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:6px;background:' + bg + ';color:' + color + ';border:1px solid ' + border + '">' +
+        icon + ' ' + esc(s.label) + ' <span style="font-family:\'JetBrains Mono\',monospace;font-size:10px;opacity:0.8">' + s.pct + '%</span></span>';
+    });
+    signalTags += '</div>';
+  }
+  
+  // Only show flags from critical/elevated dimensions
+  var strongDims = signals.map(function(s) { return s.dimension; });
+  var relevantFlags = [];
+  strongDims.forEach(function(dim) {
+    (flags[dim] || []).forEach(function(f) { relevantFlags.push({dim: dim, text: f}); });
+  });
+  
+  var flagsHtml = relevantFlags.slice(0,6).map(function(f) {
+    return '<div class="flag"><span class="flag-icon">▸</span>' + esc(f.text) + '</div>';
+  }).join('');
+  if (relevantFlags.length > 6) flagsHtml += '<div class="more-flags">+' + (relevantFlags.length - 6) + ' more signals</div>';
+  
+  var headlines = '';
+  if (c.top_headlines && c.top_headlines.length) {
+    headlines = '<div style="margin-top:12px"><div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Top Headlines</div>';
+    headlines += c.top_headlines.slice(0,3).map(function(h) {
+      var cls = h.score < 0 ? 'hs-neg' : 'hs-pos';
+      return '<div class="headline"><div class="headline-title">' + esc(h.title) + '</div>' +
+        '<div class="headline-meta"><span class="headline-score ' + cls + '">' + (h.score > 0 ? '+' : '') + h.score.toFixed(2) + '</span> · ' + esc(h.source) + '</div></div>';
+    }).join('');
+    headlines += '</div>';
+  }
+  
+  var catalyst = c.catalyst ? '<div class="catalyst">⏱ ' + esc(c.catalyst) + '</div>' : '';
+  
+  var thesis = '';
+  if (c.summary) {
+    thesis = '<div class="thesis-toggle" onclick="toggleThesis(this)">' +
+      '<span class="thesis-label">Full Short Thesis</span><span class="thesis-arrow">▼</span></div>' +
+      '<div class="thesis-body">' + esc(c.summary) + '</div>';
+  }
+  
+  // Critical count display
+  var critCount = c.critical_count || 0;
+  var elevCount = c.elevated_count || 0;
+  var signalSummary = critCount + ' critical';
+  if (elevCount > 0) signalSummary += ', ' + elevCount + ' elevated';
+  
+  return '<div class="card np">' +
+    '<div class="cand-head"><div class="cand-ticker"><span class="cand-sym">' + c.ticker + '</span>' +
+    '<span class="cand-name">' + esc(c.company_name) + ' · ' + esc(c.sector) + '</span></div>' +
+    '<div class="cand-score"><span class="cand-badge ' + badgeClass + '">' + c.conviction + '</span>' +
+    '<span style="font-size:11px;color:var(--text-muted);font-family:\'JetBrains Mono\',monospace">' + signalSummary + '</span></div></div>' +
+    '<div class="cand-body">' +
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">' +
+    '<span style="font-size:18px;font-weight:600;font-family:\'JetBrains Mono\',monospace">$' + (c.price || 0).toFixed(2) + '</span>' +
+    '<span style="font-size:12px;color:' + (c.price_change_pct < 0 ? 'var(--red)' : 'var(--green)') + '">' +
+    (c.price_change_pct > 0 ? '+' : '') + (c.price_change_pct || 0).toFixed(2) + '%</span></div>' +
+    signalTags + flagsHtml + headlines + catalyst +
+    '</div>' + thesis + '</div>';
+}
+
+function toggleThesis(el) {
+  var body = el.nextElementSibling;
+  var arrow = el.querySelector('.thesis-arrow');
+  body.classList.toggle('open');
+  arrow.style.transform = body.classList.contains('open') ? 'rotate(180deg)' : '';
+}
+
+// ═══ WATCHLIST ═══
+function renderWatchlist(tickers) {
+  document.getElementById('wlCount').textContent = tickers.length;
+  var c = document.getElementById('watchlistContent');
+  if (!tickers.length) {
+    c.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="empty-icon">👁</div><div class="empty-text">Your watchlist is empty.<br>Add tickers to monitor.</div></div>';
+    return;
+  }
+  c.innerHTML = tickers.map(function(t) {
+    return '<div class="card" style="display:flex;justify-content:space-between;align-items:center">' +
+      '<div><span style="font-size:16px;font-weight:700;font-family:\'JetBrains Mono\',monospace">' + esc(t) + '</span></div>' +
+      '<div style="display:flex;gap:6px">' +
+      '<button class="btn btn-outline btn-sm" onclick="deepDiveTicker(\'' + t + '\')">Analyze</button>' +
+      '<button class="btn btn-sm" style="background:var(--red);color:white" onclick="removeTicker(\'' + t + '\')">✕</button>' +
+      '</div></div>';
+  }).join('');
+}
+
+function addTicker() {
+  var input = document.getElementById('addTickerInput');
+  var ticker = input.value.trim().toUpperCase();
+  if (!ticker) { toast('Enter a ticker symbol'); return; }
+  apiCall('POST', '/api/watchlist/add/' + ticker).then(function(d) {
+    toast(d.message || 'Added');
+    closeModal('addTickerModal');
+    input.value = '';
+    fetchDashboard();
+  }).catch(function() { toast('Error adding ticker'); });
+}
+
+function removeTicker(sym) {
+  apiCall('POST', '/api/watchlist/remove/' + sym).then(function(d) {
+    toast(d.message || 'Removed');
+    fetchDashboard();
+  }).catch(function() { toast('Error removing ticker'); });
+}
+
+// ═══ NEWS FEED ═══
+function refreshNewsFeed() {
+  var c = document.getElementById('newsFeed');
+  c.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><div class="empty-text">Loading bearish news...</div></div>';
+  apiCall('GET', '/api/news').then(function(d) {
+    var arts = (d.articles || []).filter(function(a) { return a.sentiment && a.sentiment.score < 0; });
+    if (!arts.length) {
+      c.innerHTML = '<div class="empty"><div class="empty-icon">📰</div><div class="empty-text">No bearish news found right now.</div></div>';
+      return;
+    }
+    c.innerHTML = arts.slice(0, 30).map(function(a) {
+      var s = a.sentiment;
+      var cls = s.score < -0.3 ? 'hs-neg' : '';
+      return '<div class="news-item">' +
+        '<div class="news-title"><a href="' + esc(a.url) + '" target="_blank">' + esc(a.title) + '</a></div>' +
+        '<div class="news-meta"><span class="headline-score hs-neg">' + s.score.toFixed(2) + '</span>' +
+        '<span>' + esc(a.source) + '</span>' +
+        '<span>' + (a.published ? new Date(a.published).toLocaleDateString() : '') + '</span></div></div>';
+    }).join('');
+  }).catch(function() {
+    c.innerHTML = '<div class="empty"><div class="empty-icon">⚠</div><div class="empty-text">Error loading news feed.</div></div>';
+  });
+}
+
+// ═══ DEEP DIVE ═══
+function runDeepDive() {
+  var ticker = document.getElementById('ddInput').value.trim().toUpperCase();
+  if (!ticker) { toast('Enter a ticker'); return; }
+  deepDiveTicker(ticker);
+}
+
+function deepDiveTicker(ticker) {
+  // Switch to deep dive tab
+  document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
+  document.querySelector('[data-tab="deepdive"]').classList.add('active');
+  document.getElementById('tab-deepdive').classList.add('active');
+  document.getElementById('ddInput').value = ticker;
+  
+  var c = document.getElementById('ddResults');
+  c.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><div class="empty-text">Analyzing ' + esc(ticker) + '...<br>This may take 15-30 seconds.</div></div>';
+  
+  apiCall('GET', '/api/scan/' + ticker).then(function(d) {
+    if (d.error) {
+      c.innerHTML = '<div class="empty"><div class="empty-icon">🤷</div><div class="empty-text">' + esc(d.error) + '</div></div>';
+      return;
+    }
+    c.innerHTML = renderCandidateCard(d);
+  }).catch(function(e) {
+    c.innerHTML = '<div class="empty"><div class="empty-icon">⚠</div><div class="empty-text">Error analyzing ticker.</div></div>';
+  });
+}
+
+// ═══ INIT ═══
+fetchDashboard();
+setInterval(fetchDashboard, 60000);
+</script>
+</body>
+</html>
