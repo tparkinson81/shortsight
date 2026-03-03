@@ -119,6 +119,9 @@ async def startup():
     if NEWS_KEY and FMP_KEY:
         bg.initialize()
         print(f"  Scanner initialized.")
+        # Auto-run first scan
+        asyncio.create_task(bg.run_scan())
+        print(f"  Auto-scan started...")
     else:
         print(f"  ⚠ Missing API keys — scanner disabled.")
 
@@ -422,8 +425,27 @@ async def quicktest():
     if not bg.scanner:
         bg.initialize()
     if not bg.scanner:
-        return {"error": "Scanner not initialized"}
+        return {"error": "Scanner not initialized", "keys": {"news": bool(NEWS_KEY), "fmp": bool(FMP_KEY)}}
     
+    # First test raw FMP connectivity
+    fmp_test = {}
+    try:
+        profile = bg.scanner.fmp.get_profile("TSLA")
+        fmp_test["profile"] = {"ok": bool(profile.get("price")), "price": profile.get("price"), "name": profile.get("companyName"), "range": profile.get("range")}
+    except Exception as e:
+        fmp_test["profile"] = {"ok": False, "error": str(e)}
+    try:
+        metrics = bg.scanner.fmp.get_key_metrics("TSLA")
+        fmp_test["key_metrics"] = {"ok": bool(metrics), "pe": metrics.get("peRatio"), "ps": metrics.get("priceToSalesRatio")}
+    except Exception as e:
+        fmp_test["key_metrics"] = {"ok": False, "error": str(e)}
+    try:
+        sp = bg.scanner.fmp.get_sp500_constituents()
+        fmp_test["sp500"] = {"ok": bool(sp), "count": len(sp)}
+    except Exception as e:
+        fmp_test["sp500"] = {"ok": False, "error": str(e)}
+    
+    # Then scan tickers
     test_tickers = ["TSLA", "NVDA", "NKE", "INTC", "BA"]
     results = []
     loop = asyncio.get_event_loop()
@@ -434,10 +456,10 @@ async def quicktest():
                 results.append({"ticker": t, "total_score": r["total_score"], "conviction": r["conviction"],
                                 "scores": r["scores"], "critical": r["critical_count"], "elevated": r["elevated_count"]})
             else:
-                results.append({"ticker": t, "total_score": 0, "conviction": "filtered", "scores": {}, "note": "returned None"})
+                results.append({"ticker": t, "total_score": 0, "conviction": "filtered", "scores": {}, "note": "scan_ticker returned None"})
         except Exception as e:
-            results.append({"ticker": t, "error": str(e)})
-    return {"test_results": results}
+            results.append({"ticker": t, "error": str(e), "traceback": __import__('traceback').format_exc()})
+    return {"fmp_connectivity": fmp_test, "test_results": results}
 
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
