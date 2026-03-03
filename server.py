@@ -64,9 +64,17 @@ class BackgroundScanner:
             self.errors.append("Missing API keys. Set NEWS_API_KEY and FMP_API_KEY.")
             return False
         
-        from engine.scanner import ShortScanner
-        self.scanner = ShortScanner(NEWS_KEY, FMP_KEY, UW_KEY, QUIVER_KEY)
-        return True
+        try:
+            from engine.scanner import ShortScanner
+            self.scanner = ShortScanner(NEWS_KEY, FMP_KEY, UW_KEY, QUIVER_KEY)
+            print("  Scanner module loaded successfully")
+            return True
+        except Exception as e:
+            self.errors.append(f"Scanner init failed: {str(e)}")
+            print(f"  Scanner init error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     async def run_scan(self):
         if not self.scanner:
@@ -230,17 +238,77 @@ async def get_market_news():
     """Get bearish market news feed."""
     if not bg.scanner:
         if not bg.initialize():
+            print("[News] Scanner not initialized")
             return {"articles": []}
     
-    articles = bg.scanner.news.get_market_news(
-        query="stock decline OR earnings miss OR layoffs OR downgrade",
-        days=2
-    )
-    scored = bg.scanner.sentiment.score_headlines(articles)
+    articles = []
+    
+    # Primary: FMP general news
+    try:
+        print("[News] Fetching FMP general news...")
+        fmp_news = bg.scanner.fmp.get_general_news(limit=50)
+        print(f"[News] FMP raw type: {type(fmp_news)}, len: {len(fmp_news) if isinstance(fmp_news, list) else 'N/A'}")
+        for item in (fmp_news or []):
+            articles.append({
+                "title": item.get("title", ""),
+                "description": item.get("text", ""),
+                "source": {"name": item.get("site", item.get("source", ""))},
+                "url": item.get("url", ""),
+                "publishedAt": item.get("publishedDate", item.get("date", ""))
+            })
+        print(f"[News] FMP returned {len(articles)} articles")
+    except Exception as e:
+        import traceback
+        print(f"[News] FMP error: {e}")
+        traceback.print_exc()
+    
+    # Fallback: FMP stock-specific news for major tickers
+    if not articles:
+        print("[News] Trying FMP stock-specific news fallback...")
+        for ticker in ["AAPL", "TSLA", "NVDA", "MSFT", "META", "AMZN", "GOOGL"]:
+            try:
+                news = bg.scanner.fmp.get_stock_news(ticker)
+                for item in (news or [])[:5]:
+                    articles.append({
+                        "title": item.get("title", ""),
+                        "description": item.get("text", ""),
+                        "source": {"name": item.get("site", item.get("source", ""))},
+                        "url": item.get("url", ""),
+                        "publishedAt": item.get("publishedDate", item.get("date", ""))
+                    })
+            except Exception:
+                pass
+        print(f"[News] FMP stock fallback returned {len(articles)} articles")
+    
+    # Final fallback: NewsAPI
+    if not articles:
+        try:
+            print("[News] Trying NewsAPI fallback...")
+            newsapi_articles = bg.scanner.news.get_market_news(
+                query="stock decline OR earnings miss OR layoffs OR downgrade",
+                days=2
+            )
+            articles = newsapi_articles
+            print(f"[News] NewsAPI returned {len(articles)} articles")
+        except Exception as e:
+            print(f"[News] NewsAPI error: {e}")
+    
+    if not articles:
+        print("[News] All sources returned 0 articles")
+        return {"articles": []}
+    
+    # Deduplicate by title
+    seen = set()
+    unique = []
+    for a in articles:
+        t = a.get("title", "")
+        if t and t not in seen:
+            seen.add(t)
+            unique.append(a)
+    
+    scored = bg.scanner.sentiment.score_headlines(unique)
     return scored
 
-
-# ── Dashboard Data ──
 
 @app.get("/api/dashboard")
 async def dashboard():
