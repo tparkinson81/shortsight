@@ -436,7 +436,19 @@ async def quicktest():
         fmp_test["profile"] = {"ok": False, "error": str(e)}
     try:
         metrics = bg.scanner.fmp.get_key_metrics("TSLA")
-        fmp_test["key_metrics"] = {"ok": bool(metrics), "pe": metrics.get("peRatio"), "ps": metrics.get("priceToSalesRatio")}
+        fmp_test["key_metrics"] = {"ok": bool(metrics), "parsed": metrics}
+        # Also get raw response to see actual field names
+        raw_km = bg.scanner.fmp._get("key-metrics", {"symbol": "TSLA", "period": "ttm"})
+        if isinstance(raw_km, list) and raw_km:
+            fmp_test["key_metrics_raw_keys"] = list(raw_km[0].keys())[:20]
+            fmp_test["key_metrics_raw_sample"] = {k: raw_km[0][k] for k in list(raw_km[0].keys())[:15]}
+        elif isinstance(raw_km, list):
+            fmp_test["key_metrics_raw"] = "empty list"
+            # Try without period param
+            raw_km2 = bg.scanner.fmp._get("key-metrics", {"symbol": "TSLA"})
+            if isinstance(raw_km2, list) and raw_km2:
+                fmp_test["key_metrics_no_period_keys"] = list(raw_km2[0].keys())[:20]
+                fmp_test["key_metrics_no_period_sample"] = {k: raw_km2[0][k] for k in list(raw_km2[0].keys())[:15]}
     except Exception as e:
         fmp_test["key_metrics"] = {"ok": False, "error": str(e)}
     try:
@@ -444,6 +456,17 @@ async def quicktest():
         fmp_test["sp500"] = {"ok": bool(sp), "count": len(sp)}
     except Exception as e:
         fmp_test["sp500"] = {"ok": False, "error": str(e)}
+    
+    # Short interest check
+    try:
+        sf_raw = bg.scanner.fmp._get("shares-float", {"symbol": "TSLA"})
+        if isinstance(sf_raw, list) and sf_raw:
+            fmp_test["shares_float_keys"] = list(sf_raw[0].keys())[:15]
+            fmp_test["shares_float_sample"] = {k: sf_raw[0][k] for k in list(sf_raw[0].keys())[:10]}
+        else:
+            fmp_test["shares_float"] = {"ok": False, "data": str(sf_raw)[:200]}
+    except Exception as e:
+        fmp_test["shares_float"] = {"ok": False, "error": str(e)}
     
     # Then scan tickers
     test_tickers = ["TSLA", "NVDA", "NKE", "INTC", "BA"]
