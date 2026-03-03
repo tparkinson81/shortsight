@@ -173,14 +173,21 @@ class FMPFetcher:
     
     def get_stock_news(self, ticker: str) -> List[Dict]:
         """Get FMP stock news for a ticker."""
-        data = self._get("stock-news", {"symbol": ticker, "limit": "30"})
+        data = self._get("news/stock-latest", {"symbol": ticker, "limit": "30"})
+        if isinstance(data, list):
+            return data
+        return []
+    
+    def get_general_news(self, limit: int = 50) -> List[Dict]:
+        """Get general FMP stock news feed."""
+        data = self._get("news/stock-latest", {"limit": str(limit)})
         if isinstance(data, list):
             return data
         return []
     
     def get_grades(self, ticker: str) -> List[Dict]:
         """Get analyst grades (upgrades/downgrades)."""
-        data = self._get("grades", {"symbol": ticker, "limit": "10"})
+        data = self._get("stock-grade", {"symbol": ticker, "limit": "10"})
         if isinstance(data, list):
             return data
         return []
@@ -188,7 +195,7 @@ class FMPFetcher:
     def get_earnings_transcript(self, ticker: str, year: int = None, quarter: int = None) -> str:
         """Get the most recent earnings call transcript text."""
         # First get available dates
-        dates = self._get("earning-call-transcript-dates", {"symbol": ticker})
+        dates = self._get("earning-call-transcript-available-dates", {"symbol": ticker})
         if not isinstance(dates, list) or not dates:
             return ""
         
@@ -222,7 +229,7 @@ class FMPFetcher:
         params = {"limit": "50"}
         if ticker:
             params["symbol"] = ticker
-        data = self._get("senate-trading", params)
+        data = self._get("senate-trading-rss-feed", params)
         if isinstance(data, list):
             return data
         return []
@@ -232,7 +239,7 @@ class FMPFetcher:
         params = {"limit": "50"}
         if ticker:
             params["symbol"] = ticker
-        data = self._get("house-trades", params)
+        data = self._get("house-disclosure-rss-feed", params)
         if isinstance(data, list):
             return data
         return []
