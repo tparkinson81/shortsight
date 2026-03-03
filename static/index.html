@@ -104,6 +104,32 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);min-
 .dlog div{padding:2px 0;line-height:1.5}.dlog .de{color:var(--red)}.dlog .dok{color:var(--green)}
 .err-banner{background:var(--red-soft);border:1px solid var(--red-border);border-radius:var(--radius);padding:12px 18px;margin-bottom:16px;font-size:13px;color:var(--red);display:none;line-height:1.5}
 .err-banner.show{display:block}
+.set-row{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--border)}
+.set-row:last-child{border-bottom:none}
+.set-left{display:flex;flex-direction:column;gap:3px;flex:1}
+.set-name{font-size:14px;font-weight:600}
+.set-desc{font-size:11px;color:var(--text3);line-height:1.4}
+.set-right{display:flex;align-items:center;gap:14px}
+.toggle{position:relative;width:42px;height:24px;cursor:pointer;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.toggle .slider{position:absolute;inset:0;background:var(--graphite2);border-radius:12px;transition:0.2s;border:1px solid var(--border2)}
+.toggle .slider:before{content:'';position:absolute;width:18px;height:18px;left:2px;top:2px;background:var(--text3);border-radius:50%;transition:0.2s}
+.toggle input:checked + .slider{background:var(--red);border-color:var(--red)}
+.toggle input:checked + .slider:before{transform:translateX(18px);background:white}
+.set-pts{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text3);min-width:50px;text-align:right}
+.range-row{display:flex;align-items:center;gap:12px;margin-top:0}
+.range-row input[type=range]{flex:1;-webkit-appearance:none;height:4px;background:var(--graphite2);border-radius:2px;outline:none}
+.range-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--red);cursor:pointer;border:2px solid var(--bg)}
+.range-val{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text2);min-width:24px;text-align:center}
+.set-section{margin-bottom:28px}
+.set-section-title{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border2)}
+.filter-pills{display:flex;gap:6px;flex-wrap:wrap}
+.filter-pill{font-size:11px;font-weight:600;padding:5px 14px;border-radius:16px;cursor:pointer;border:1px solid var(--border2);color:var(--text3);background:transparent;transition:all 0.15s;font-family:'Outfit',sans-serif}
+.filter-pill.active{background:var(--red-soft);color:var(--red);border-color:var(--red-border)}
+.filter-pill:hover{border-color:var(--border3)}
+.set-total{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:var(--graphite);border-radius:var(--radius);margin-top:16px}
+.set-total-label{font-size:13px;font-weight:600;color:var(--text2)}
+.set-total-val{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--red)}
 @media(max-width:640px){.header{padding:14px 18px}.main{padding:18px}.nav{padding:0 18px}.nav-tab{padding:10px 14px;font-size:12px}.g4{grid-template-columns:repeat(2,1fr)}.cn{max-width:120px}}
 </style>
 </head>
@@ -120,8 +146,10 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);min-
 <div class="nav-tab" data-tab="watchlist">Watchlist <span class="tbadge" id="wlCount" style="background:var(--graphite2);color:var(--text2)">0</span></div>
 <div class="nav-tab" data-tab="news">News Feed</div>
 <div class="nav-tab" data-tab="deepdive">Deep Dive</div>
+<div class="nav-tab" data-tab="settings">&#9881; Settings</div>
 </nav>
 <div class="main">
+<!-- SCANNER TAB -->
 <div class="tc active" id="tab-scanner">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:8px">
 <div><div class="stitle" style="margin-bottom:4px">Short Thesis Scanner</div><div style="font-size:12px;color:var(--text3)" id="scanMeta">Surfaces stocks with strong bearish signals across 10 dimensions.</div></div>
@@ -133,31 +161,160 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);min-
 <div class="card"><div class="sl">Strong+</div><div class="sv" id="sS" style="color:var(--amber)">&mdash;</div></div>
 <div class="card"><div class="sl">Last Scan</div><div class="sv" id="sT" style="font-size:13px;color:var(--text3)">&mdash;</div></div>
 </div>
-<div class="stitle mb16">High-Conviction Signals</div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+<div class="stitle">High-Conviction Signals</div>
+<div class="filter-pills" id="convFilter">
+<div class="filter-pill active" data-conv="all" onclick="setConvFilter('all')">All</div>
+<div class="filter-pill" data-conv="Very Strong" onclick="setConvFilter('Very Strong')">Very Strong</div>
+<div class="filter-pill" data-conv="Strong" onclick="setConvFilter('Strong')">Strong</div>
+<div class="filter-pill" data-conv="Moderate" onclick="setConvFilter('Moderate')">Moderate</div>
+<div class="filter-pill" data-conv="Emerging" onclick="setConvFilter('Emerging')">Emerging</div>
+</div></div>
 <div id="cList" class="g1 mb20"><div class="empty"><b>&#9662;</b><p>No scan results yet.<br>Click <strong>Run Scan</strong> to screen the S&amp;P 500.</p></div></div>
 <div id="dbgS" style="display:none"><div style="font-size:11px;color:var(--text3);cursor:pointer;user-select:none" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">&#9654; Debug Log</div><div class="dlog" id="dbgL" style="display:none"></div></div>
 </div>
+<!-- WATCHLIST TAB -->
 <div class="tc" id="tab-watchlist">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:8px">
 <div class="stitle">Watchlist</div><button class="btn bp bs" onclick="openM('addM')">+ Add Ticker</button></div>
-<div id="wlC" class="g2"><div class="empty"><p>Watchlist empty. Add tickers to monitor.</p></div></div>
+<div id="wlC" class="g2"><div class="empty"><p>Watchlist empty.</p></div></div>
 </div>
+<!-- NEWS TAB -->
 <div class="tc" id="tab-news">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:8px">
 <div class="stitle">Bearish News Feed</div><button class="btn bo bs" onclick="loadNews()">Refresh</button></div>
 <div class="card np" id="nfeed"><div class="empty"><p>Loading news...</p></div></div>
 </div>
+<!-- DEEP DIVE TAB -->
 <div class="tc" id="tab-deepdive">
 <div style="display:flex;gap:10px;align-items:center;margin-bottom:20px">
 <input class="inp" id="ddI" placeholder="Enter ticker (e.g. TSLA)" style="max-width:280px" onkeydown="if(event.key==='Enter')runDD()">
 <button class="btn bp bs" onclick="runDD()">Analyze</button></div>
 <div id="ddR"><div class="empty"><p>Enter a ticker to run deep analysis.</p></div></div>
 </div>
+<!-- SETTINGS TAB -->
+<div class="tc" id="tab-settings">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:8px">
+<div><div class="stitle" style="margin-bottom:4px">Scoring Criteria</div><div style="font-size:12px;color:var(--text3)">Toggle dimensions on/off. Changes apply instantly to displayed results.</div></div>
+<button class="btn bo bs" onclick="resetSettings()">Reset Defaults</button>
 </div>
+<div class="set-section">
+<div class="set-section-title">Scoring Dimensions</div>
+<div class="card" style="padding:4px 18px" id="dimToggles"></div>
+<div class="set-total"><span class="set-total-label">Total Possible Score</span><span class="set-total-val" id="totalMax">125</span></div>
+</div>
+<div class="set-section">
+<div class="set-section-title">Display Filters</div>
+<div class="card" style="padding:4px 18px">
+<div class="set-row">
+<div class="set-left"><div class="set-name">Minimum Total Score</div><div class="set-desc">Only show candidates scoring above this threshold</div></div>
+<div class="set-right"><div class="range-row"><input type="range" min="0" max="60" value="0" id="minScoreSlider" oninput="updateMinScore(this.value)"><span class="range-val" id="minScoreVal">0</span></div></div>
+</div>
+<div class="set-row">
+<div class="set-left"><div class="set-name">Min Critical Signals</div><div class="set-desc">Require N dimensions at 60%+ of their max</div></div>
+<div class="set-right"><div class="range-row"><input type="range" min="0" max="5" value="0" id="minCritSlider" oninput="updateMinCrit(this.value)"><span class="range-val" id="minCritVal">0</span></div></div>
+</div>
+<div class="set-row">
+<div class="set-left"><div class="set-name">Min Elevated Signals</div><div class="set-desc">Require N dimensions at 40%+ of their max</div></div>
+<div class="set-right"><div class="range-row"><input type="range" min="0" max="5" value="0" id="minElevSlider" oninput="updateMinElev(this.value)"><span class="range-val" id="minElevVal">0</span></div></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- MODALS -->
 <div class="mbg" id="addM"><div class="modal"><h2>Add to Watchlist</h2><p style="font-size:13px;color:var(--text2);margin-bottom:14px">Enter a stock ticker to monitor.</p><input class="inp" id="addI" placeholder="e.g. TSLA" style="margin-bottom:14px" onkeydown="if(event.key==='Enter')addTk()"><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn bo bs" onclick="closeM('addM')">Cancel</button><button class="btn bp bs" onclick="addTk()">Add</button></div></div></div>
 <div class="tc2" id="toasts"></div>
 <script>
-var A=location.origin,S={scan:{},wl:[]},D=[];
+var A=location.origin,S={scan:{},wl:[]},D=[],convFilterVal='all',rawCandidates=[];
+
+// ── DIMENSION CONFIG ──
+var DIM_DEFAULTS={
+  news:{label:'News Sentiment',max:20,desc:'NewsAPI + FMP article sentiment analysis',on:true},
+  transcript:{label:'Earnings Transcript',max:15,desc:'API Ninjas call transcript tone & hedging',on:true},
+  insider:{label:'Insider Activity',max:15,desc:'SEC EDGAR Form 4 sell/buy filing analysis',on:true},
+  earnings:{label:'Earnings Quality',max:15,desc:'Revenue trends, margin compression, net income',on:true},
+  short_interest:{label:'Short Interest',max:10,desc:'Short % of float + days to cover',on:true},
+  valuation:{label:'Valuation',max:15,desc:'P/E, P/S, EV/EBITDA, PEG, debt/ROE',on:true},
+  price_action:{label:'Price Action',max:10,desc:'52-week drawdown, range position, momentum',on:true},
+  social:{label:'Social Sentiment',max:10,desc:'Reddit + Stocktwits + WSB mentions',on:true},
+  sec:{label:'SEC Filings',max:10,desc:'8-K filing volume + red flag keywords',on:true},
+  analyst:{label:'Analyst Momentum',max:5,desc:'Sell ratings %, price target gap, downgrades',on:true}
+};
+var DIM_ORDER=['news','transcript','insider','earnings','short_interest','valuation','price_action','social','sec','analyst'];
+var dimSettings={},filterSettings={minScore:0,minCrit:0,minElev:0};
+
+function loadSettings(){
+  try{var s=JSON.parse(getCookie('ss_settings')||'{}');if(s.dims)dimSettings=s.dims;if(s.filters)filterSettings=s.filters}catch(e){}
+  DIM_ORDER.forEach(function(k){if(!dimSettings[k])dimSettings[k]={on:DIM_DEFAULTS[k].on}});
+}
+function saveSettings(){
+  setCookie('ss_settings',JSON.stringify({dims:dimSettings,filters:filterSettings}),365);
+  refilterAndRender();
+}
+function getCookie(n){var m=document.cookie.match(new RegExp('(^| )'+n+'=([^;]+)'));return m?decodeURIComponent(m[2]):''}
+function setCookie(n,v,d){var e=new Date();e.setDate(e.getDate()+d);document.cookie=n+'='+encodeURIComponent(v)+';expires='+e.toUTCString()+';path=/;SameSite=Lax'}
+
+function renderDimToggles(){
+  var c=document.getElementById('dimToggles');
+  c.innerHTML=DIM_ORDER.map(function(k){
+    var d=DIM_DEFAULTS[k],s=dimSettings[k],ck=s&&s.on!==false?'checked':'';
+    return '<div class="set-row"><div class="set-left"><div class="set-name">'+E(d.label)+'</div><div class="set-desc">'+E(d.desc)+'</div></div><div class="set-right"><span class="set-pts">'+d.max+' pts</span><label class="toggle"><input type="checkbox" '+ck+' onchange="toggleDim(\''+k+'\',this.checked)"><span class="slider"></span></label></div></div>';
+  }).join('');
+  updateTotalMax();
+}
+function toggleDim(k,on){dimSettings[k]={on:on};updateTotalMax();saveSettings()}
+function updateTotalMax(){
+  var t=0;DIM_ORDER.forEach(function(k){if(dimSettings[k]&&dimSettings[k].on!==false)t+=DIM_DEFAULTS[k].max});
+  document.getElementById('totalMax').textContent=t;
+}
+function updateMinScore(v){filterSettings.minScore=+v;document.getElementById('minScoreVal').textContent=v;saveSettings()}
+function updateMinCrit(v){filterSettings.minCrit=+v;document.getElementById('minCritVal').textContent=v;saveSettings()}
+function updateMinElev(v){filterSettings.minElev=+v;document.getElementById('minElevVal').textContent=v;saveSettings()}
+function resetSettings(){
+  dimSettings={};DIM_ORDER.forEach(function(k){dimSettings[k]={on:true}});
+  filterSettings={minScore:0,minCrit:0,minElev:0};
+  document.getElementById('minScoreSlider').value=0;document.getElementById('minScoreVal').textContent='0';
+  document.getElementById('minCritSlider').value=0;document.getElementById('minCritVal').textContent='0';
+  document.getElementById('minElevSlider').value=0;document.getElementById('minElevVal').textContent='0';
+  renderDimToggles();saveSettings();toast('Settings reset');
+}
+
+// ── CLIENT-SIDE RECALC ──
+function recalcCandidate(c){
+  var scores=c.scores||{},flags=c.flags||{},total=0,crit=0,elev=0,sigs=[],af={};
+  DIM_ORDER.forEach(function(k){
+    if(!dimSettings[k]||dimSettings[k].on===false)return;
+    var s=scores[k]||0,mx=DIM_DEFAULTS[k].max,pct=mx>0?s/mx:0;
+    total+=s;
+    if(pct>=0.6){crit++;sigs.push({dimension:k,label:DIM_DEFAULTS[k].label,tier:'critical',score:s,max:mx,pct:Math.round(pct*100)})}
+    else if(pct>=0.4){elev++;sigs.push({dimension:k,label:DIM_DEFAULTS[k].label,tier:'elevated',score:s,max:mx,pct:Math.round(pct*100)})}
+    if(flags[k])af[k]=flags[k];
+  });
+  var conv='Emerging';
+  if(crit>=3)conv='Very Strong';else if(crit>=2)conv='Strong';else if(crit>=1&&elev>=1)conv='Strong';else if(crit>=1)conv='Moderate';else if(elev>=3)conv='Moderate';
+  return{ticker:c.ticker,company_name:c.company_name,sector:c.sector,price:c.price,price_change_pct:c.price_change_pct,
+    total_score:total,conviction:conv,critical_count:crit,elevated_count:elev,signals:sigs,flags:af,
+    top_headlines:c.top_headlines,reddit_posts:c.reddit_posts,summary:c.summary,risks:c.risks,catalyst:c.catalyst,
+    scores:scores,generated_at:c.generated_at};
+}
+function filterCandidates(arr){
+  return arr.map(recalcCandidate).filter(function(c){
+    if(c.total_score<filterSettings.minScore)return false;
+    if(c.critical_count<filterSettings.minCrit)return false;
+    if((c.critical_count+c.elevated_count)<filterSettings.minElev)return false;
+    if(convFilterVal!=='all'&&c.conviction!==convFilterVal)return false;
+    return c.total_score>0;
+  }).sort(function(a,b){return(b.critical_count-a.critical_count)||(b.elevated_count-a.elevated_count)||(b.total_score-a.total_score)});
+}
+function setConvFilter(v){
+  convFilterVal=v;
+  document.querySelectorAll('#convFilter .filter-pill').forEach(function(p){p.classList.toggle('active',p.getAttribute('data-conv')===v)});
+  refilterAndRender();
+}
+function refilterAndRender(){if(rawCandidates.length)renderFilteredScan(filterCandidates(rawCandidates))}
+
+// ── CORE UI ──
 function E(s){if(!s)return'';var d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function toast(m){var c=document.getElementById('toasts'),t=document.createElement('div');t.className='toast';t.textContent=m;c.appendChild(t);setTimeout(function(){t.remove()},4000)}
 function dbg(m,e){D.push({m:m,e:!!e,t:new Date().toLocaleTimeString()});var l=document.getElementById('dbgL'),s=document.getElementById('dbgS');if(s)s.style.display='block';if(l){l.innerHTML=D.slice(-40).map(function(d){return'<div class="'+(d.e?'de':'dok')+'\">['+d.t+'] '+E(d.m)+'</div>'}).join('');l.scrollTop=l.scrollHeight}}
@@ -167,19 +324,67 @@ function api(method,path,body){var o={method:method};if(body){o.headers={'Conten
 function openM(id){document.getElementById(id).classList.add('open')}
 function closeM(id){document.getElementById(id).classList.remove('open')}
 document.querySelectorAll('.mbg').forEach(function(m){m.addEventListener('click',function(e){if(e.target===m)m.classList.remove('open')})});
-document.querySelectorAll('.nav-tab').forEach(function(tab){tab.addEventListener('click',function(){document.querySelectorAll('.nav-tab').forEach(function(t){t.classList.remove('active')});document.querySelectorAll('.tc').forEach(function(c){c.classList.remove('active')});tab.classList.add('active');var tgt=tab.getAttribute('data-tab');document.getElementById('tab-'+tgt).classList.add('active');if(tgt==='news')loadNews()})});
-function fetchDash(){api('GET','/api/dashboard').then(function(d){S.scan=d.scan||{};S.wl=d.watchlist||[];renderScan(d.scan||{});renderWL(d.watchlist||[]);updSt(d.status||{});hideErr()}).catch(function(e){dbg('Dashboard error: '+e.message,true)})}
+document.querySelectorAll('.nav-tab').forEach(function(tab){tab.addEventListener('click',function(){document.querySelectorAll('.nav-tab').forEach(function(t){t.classList.remove('active')});document.querySelectorAll('.tc').forEach(function(c){c.classList.remove('active')});tab.classList.add('active');var tgt=tab.getAttribute('data-tab');document.getElementById('tab-'+tgt).classList.add('active');if(tgt==='news')loadNews();if(tgt==='settings')renderDimToggles()})});
+function fetchDash(){api('GET','/api/dashboard').then(function(d){S.scan=d.scan||{};S.wl=d.watchlist||[];rawCandidates=(d.scan||{}).candidates||[];renderScan(d.scan||{});renderWL(d.watchlist||[]);updSt(d.status||{});hideErr()}).catch(function(e){dbg('Dashboard error: '+e.message,true)})}
 function updSt(s){var d=document.getElementById('sdot'),t=document.getElementById('stxt');if(s.is_scanning){d.className='dot scanning';t.textContent='Scanning...'}else if(s.scanner_ready){d.className='dot ok';t.textContent='Ready'}else{d.className='dot err';t.textContent='Not initialized'}}
-function triggerScan(){var b=document.getElementById('scanBtn');b.textContent='Scanning...';b.disabled=true;toast('Scan started \u2014 screening S&P 500...');dbg('Scan triggered');hideErr();api('POST','/api/scan').then(function(d){dbg('Server: '+(d.message||'OK'))}).catch(function(e){dbg('Scan trigger error: '+e.message,true);showErr('Could not start scan: '+e.message);b.textContent='Run Scan';b.disabled=false});var ck=0,ch=setInterval(function(){ck++;api('GET','/api/health').then(function(h){dbg('Poll #'+ck+' scanning='+h.is_scanning);if(h.errors&&h.errors.length)h.errors.forEach(function(x){dbg('Server: '+x,true)});if(!h.is_scanning&&ck>2){clearInterval(ch);b.textContent='Run Scan';b.disabled=false;fetchDash();var n=S.scan.found||0;toast(n>0?n+' candidates found':'Scan complete \u2014 no candidates met threshold');dbg('Scan complete')}}).catch(function(){});fetchDash();if(ck>60){clearInterval(ch);b.textContent='Run Scan';b.disabled=false;dbg('Poll timeout',true)}},10000)}
-function renderScan(scan){var c=scan.candidates||[],bk=scan.breakdown||{};document.getElementById('scanCount').textContent=c.length;document.getElementById('sU').textContent=scan.universe_size||'\u2014';document.getElementById('sF').textContent=scan.found!=null?scan.found:'\u2014';document.getElementById('sS').textContent=((bk.very_strong||0)+(bk.strong||0))||'\u2014';if(scan.scanned_at){var dt=new Date(scan.scanned_at+'Z');document.getElementById('sT').textContent=dt.toLocaleDateString()+' '+dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});document.getElementById('scanMeta').textContent=scan.universe_size+' screened \u2022 '+(scan.scan_seconds||'?')+'s \u2022 '+(scan.found||0)+' flagged'}var l=document.getElementById('cList');if(!c.length){l.innerHTML=scan.scanned_at?'<div class="empty"><p>Scan complete. No stocks met the signal threshold.<br>Try <strong>Deep Dive</strong> on a specific ticker.</p></div>':'<div class="empty"><b>&#9662;</b><p>No scan results yet.<br>Click <strong>Run Scan</strong> to screen the S&amp;P 500.</p></div>';return}l.innerHTML=c.map(function(x){return rCard(x)}).join('')}
-function rCard(c){var sigs=c.signals||[],fl=c.flags||{},cls=c.conviction==='Very Strong'?'very-strong':c.conviction==='Strong'?'strong':c.conviction==='Moderate'?'moderate':c.conviction==='Emerging'?'emerging':'weak';var tags='';if(sigs.length){tags='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px">';sigs.forEach(function(s){var cr=s.tier==='critical',bg=cr?'var(--red-soft)':'var(--amber-soft)',co=cr?'var(--red)':'var(--amber)',bd=cr?'var(--red-border)':'var(--amber-border)',ic=cr?'\u25cf':'\u25d0';tags+='<span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:5px;background:'+bg+';color:'+co+';border:1px solid '+bd+'">'+ic+' '+E(s.label)+' <span style="font-family:JetBrains Mono,monospace;font-size:10px;opacity:0.65">'+s.pct+'%</span></span>'});tags+='</div>'}var dims=sigs.map(function(s){return s.dimension}),rf=[];dims.forEach(function(d){(fl[d]||[]).forEach(function(f){rf.push(f)})});var fh=rf.slice(0,6).map(function(f){return'<div class="flag"><span class="fi">\u25b8</span>'+E(f)+'</div>'}).join('');if(rf.length>6)fh+='<div class="mf">+'+(rf.length-6)+' more flags</div>';var hl='';if(c.top_headlines&&c.top_headlines.length){hl='<div style="margin-top:12px"><div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Headlines</div>';hl+=c.top_headlines.slice(0,3).map(function(h){return'<div class="hl"><div class="hlt">'+E(h.title)+'</div><div class="hlm"><span class="hls '+(h.score<0?'hn':'hp')+'">'+(h.score>0?'+':'')+h.score.toFixed(2)+'</span> '+E(h.source)+'</div></div>'}).join('');hl+='</div>'}var cat=c.catalyst?'<div class="cat">'+E(c.catalyst)+'</div>':'';var th=c.summary?'<div class="tt" onclick="togTh(this)"><span class="tl">Short Thesis</span><span class="ta">&#9662;</span></div><div class="thb">'+E(c.summary)+'</div>':'';var cr2=c.critical_count||0,el=c.elevated_count||0,sm=cr2+' critical'+(el>0?', '+el+' elevated':'');return'<div class="card np"><div class="ch"><div class="ct"><span class="cs">'+c.ticker+'</span><span class="cn">'+E(c.company_name)+' \u2022 '+E(c.sector)+'</span></div><div class="csc"><span class="cb '+cls+'">'+c.conviction+'</span><span style="font-size:10px;color:var(--text3);font-family:JetBrains Mono,monospace">'+sm+'</span></div></div><div class="cbody"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px"><span style="font-size:18px;font-weight:700;font-family:JetBrains Mono,monospace">$'+(c.price||0).toFixed(2)+'</span><span style="font-size:12px;color:'+(c.price_change_pct<0?'var(--red)':'var(--green)')+'">'+(c.price_change_pct>0?'+':'')+(c.price_change_pct||0).toFixed(2)+'%</span></div>'+tags+fh+hl+cat+'</div>'+th+'</div>'}
+function triggerScan(){var b=document.getElementById('scanBtn');b.textContent='Scanning...';b.disabled=true;toast('Scan started \u2014 screening S&P 500...');dbg('Scan triggered');hideErr();api('POST','/api/scan').then(function(d){dbg('Server: '+(d.message||'OK'))}).catch(function(e){dbg('Scan trigger error: '+e.message,true);showErr('Could not start scan: '+e.message);b.textContent='Run Scan';b.disabled=false});var ck=0,ch=setInterval(function(){ck++;api('GET','/api/health').then(function(h){dbg('Poll #'+ck+' scanning='+h.is_scanning);if(h.errors&&h.errors.length)h.errors.forEach(function(x){dbg('Server: '+x,true)});if(!h.is_scanning&&ck>2){clearInterval(ch);b.textContent='Run Scan';b.disabled=false;fetchDash();toast(rawCandidates.length>0?rawCandidates.length+' candidates found':'Scan complete');dbg('Scan complete')}}).catch(function(){});fetchDash();if(ck>60){clearInterval(ch);b.textContent='Run Scan';b.disabled=false;dbg('Poll timeout',true)}},10000)}
+
+function renderScan(scan){
+  rawCandidates=scan.candidates||[];
+  document.getElementById('sU').textContent=scan.universe_size||'\u2014';
+  if(scan.scanned_at){var dt=new Date(scan.scanned_at+'Z');document.getElementById('sT').textContent=dt.toLocaleDateString()+' '+dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});document.getElementById('scanMeta').textContent=scan.universe_size+' screened \u2022 '+(scan.scan_seconds||'?')+'s \u2022 '+rawCandidates.length+' returned'}
+  var filtered=rawCandidates.length?filterCandidates(rawCandidates):[];
+  renderFilteredScan(filtered);
+}
+function renderFilteredScan(filtered){
+  document.getElementById('scanCount').textContent=filtered.length;
+  document.getElementById('sF').textContent=filtered.length||'\u2014';
+  var strong=filtered.filter(function(c){return c.conviction==='Very Strong'||c.conviction==='Strong'}).length;
+  document.getElementById('sS').textContent=strong||'\u2014';
+  var l=document.getElementById('cList');
+  if(!filtered.length){
+    if(rawCandidates.length)l.innerHTML='<div class="empty"><p>'+rawCandidates.length+' candidates scored but none match current filters.<br>Adjust <strong>Settings</strong> or conviction filter above.</p></div>';
+    else l.innerHTML=S.scan.scanned_at?'<div class="empty"><p>Scan complete. No stocks returned.<br>Try <strong>Deep Dive</strong> on a specific ticker.</p></div>':'<div class="empty"><b>&#9662;</b><p>No scan results yet.<br>Click <strong>Run Scan</strong> to screen the S&amp;P 500.</p></div>';
+    return;
+  }
+  l.innerHTML=filtered.map(rCard).join('');
+}
+function rCard(c){
+  var sigs=c.signals||[],fl=c.flags||{},cls=c.conviction==='Very Strong'?'very-strong':c.conviction==='Strong'?'strong':c.conviction==='Moderate'?'moderate':c.conviction==='Emerging'?'emerging':'weak';
+  // Signal tags
+  var tags='';if(sigs.length){tags='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px">';sigs.forEach(function(s){var cr=s.tier==='critical',bg=cr?'var(--red-soft)':'var(--amber-soft)',co=cr?'var(--red)':'var(--amber)',bd=cr?'var(--red-border)':'var(--amber-border)',ic=cr?'\u25cf':'\u25d0';tags+='<span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:5px;background:'+bg+';color:'+co+';border:1px solid '+bd+'">'+ic+' '+E(s.label)+' <span style="font-family:JetBrains Mono,monospace;font-size:10px;opacity:0.65">'+s.pct+'%</span></span>'});tags+='</div>'}
+  // Flags from active dimensions only
+  var dims=sigs.map(function(s){return s.dimension}),rf=[];dims.forEach(function(d){(fl[d]||[]).forEach(function(f){rf.push(f)})});
+  var fh=rf.slice(0,6).map(function(f){return'<div class="flag"><span class="fi">\u25b8</span>'+E(f)+'</div>'}).join('');if(rf.length>6)fh+='<div class="mf">+'+(rf.length-6)+' more flags</div>';
+  // Headlines
+  var hl='';if(c.top_headlines&&c.top_headlines.length){hl='<div style="margin-top:12px"><div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">Headlines</div>';hl+=c.top_headlines.slice(0,3).map(function(h){return'<div class="hl"><div class="hlt">'+E(h.title)+'</div><div class="hlm"><span class="hls '+(h.score<0?'hn':'hp')+'">'+(h.score>0?'+':'')+h.score.toFixed(2)+'</span> '+E(h.source)+'</div></div>'}).join('');hl+='</div>'}
+  var cat=c.catalyst?'<div class="cat">'+E(c.catalyst)+'</div>':'';
+  var th=c.summary?'<div class="tt" onclick="togTh(this)"><span class="tl">Short Thesis</span><span class="ta">&#9662;</span></div><div class="thb">'+E(c.summary)+'</div>':'';
+  var cr2=c.critical_count||0,el=c.elevated_count||0,sm=cr2+' critical'+(el>0?', '+el+' elevated':'');
+  // Score bar — proportional segments colored by signal strength
+  var sb='<div style="display:flex;gap:2px;margin-bottom:10px" title="Score breakdown by dimension">';
+  DIM_ORDER.forEach(function(dk){
+    if(!dimSettings[dk]||dimSettings[dk].on===false)return;
+    var sv=(c.scores||{})[dk]||0,mx=DIM_DEFAULTS[dk].max,pct=mx>0?sv/mx:0;
+    var col=pct>=0.6?'var(--red)':pct>=0.4?'var(--amber)':pct>0?'var(--graphite2)':'rgba(255,255,255,0.04)';
+    sb+='<div title="'+DIM_DEFAULTS[dk].label+': '+sv+'/'+mx+'" style="flex:'+mx+';height:4px;border-radius:2px;background:'+col+'"></div>';
+  });
+  sb+='</div>';
+  return'<div class="card np"><div class="ch"><div class="ct"><span class="cs">'+c.ticker+'</span><span class="cn">'+E(c.company_name)+' \u2022 '+E(c.sector)+'</span></div><div class="csc"><span class="cb '+cls+'">'+c.conviction+'</span><span style="font-size:10px;color:var(--text3);font-family:JetBrains Mono,monospace">'+c.total_score+' pts \u2022 '+sm+'</span></div></div><div class="cbody">'+sb+'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px"><span style="font-size:18px;font-weight:700;font-family:JetBrains Mono,monospace">$'+(c.price||0).toFixed(2)+'</span><span style="font-size:12px;color:'+(c.price_change_pct<0?'var(--red)':'var(--green)')+'">'+(c.price_change_pct>0?'+':'')+(c.price_change_pct||0).toFixed(2)+'%</span></div>'+tags+fh+hl+cat+'</div>'+th+'</div>';
+}
 function togTh(el){var b=el.nextElementSibling,a=el.querySelector('.ta');b.classList.toggle('open');a.style.transform=b.classList.contains('open')?'rotate(180deg)':''}
 function renderWL(t){document.getElementById('wlCount').textContent=t.length;var c=document.getElementById('wlC');if(!t.length){c.innerHTML='<div class="empty" style="grid-column:1/-1"><p>Watchlist empty.</p></div>';return}c.innerHTML=t.map(function(x){return'<div class="card" style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:15px;font-weight:700;font-family:JetBrains Mono,monospace">'+E(x)+'</span><div style="display:flex;gap:6px"><button class="btn bo bs" onclick="ddTk(\''+x+'\')">Analyze</button><button class="btn bs" style="background:var(--red-soft);color:var(--red);border:1px solid var(--red-border)" onclick="rmTk(\''+x+'\')">Remove</button></div></div>'}).join('')}
 function addTk(){var i=document.getElementById('addI'),t=i.value.trim().toUpperCase();if(!t){toast('Enter a ticker');return}api('POST','/api/watchlist/add/'+t).then(function(d){toast(d.message||'Added');closeM('addM');i.value='';fetchDash()}).catch(function(){toast('Error adding ticker')})}
 function rmTk(s){api('POST','/api/watchlist/remove/'+s).then(function(d){toast(d.message||'Removed');fetchDash()}).catch(function(){toast('Error')})}
-function loadNews(){var c=document.getElementById('nfeed');c.innerHTML='<div class="empty"><p>Loading bearish news...</p></div>';dbg('Loading news feed');api('GET','/api/news').then(function(d){var a=d.articles||[];if(!a.length){c.innerHTML='<div class="empty"><p>No news returned.<br><span style="font-size:11px">Check Debug Log on Scanner tab for API details.</span></p></div>';dbg('News: 0 articles',true);return}dbg('News: '+a.length+' articles');var neg=a.filter(function(x){return x.sentiment&&x.sentiment.score<0});if(!neg.length)neg=a;c.innerHTML=neg.slice(0,30).map(function(x){var s=x.sentiment||{};return'<div class="ni"><div class="nit"><a href="'+E(x.url)+'" target="_blank">'+E(x.title)+'</a></div><div class="nim">'+(s.score!=null?'<span class="hls '+(s.score<0?'hn':'hp')+'">'+s.score.toFixed(2)+'</span>':'')+'<span>'+E(x.source)+'</span><span>'+(x.published?new Date(x.published).toLocaleDateString():'')+'</span></div></div>'}).join('')}).catch(function(e){c.innerHTML='<div class="empty"><p>Error: '+E(e.message)+'</p></div>';dbg('News error: '+e.message,true)})}
+function loadNews(){var c=document.getElementById('nfeed');c.innerHTML='<div class="empty"><p>Loading bearish news...</p></div>';dbg('Loading news feed');api('GET','/api/news').then(function(d){var a=d.articles||[];if(!a.length){c.innerHTML='<div class="empty"><p>No news returned.</p></div>';dbg('News: 0 articles',true);return}dbg('News: '+a.length+' articles');var neg=a.filter(function(x){return x.sentiment&&x.sentiment.score<0});if(!neg.length)neg=a;c.innerHTML=neg.slice(0,30).map(function(x){var s=x.sentiment||{};return'<div class="ni"><div class="nit"><a href="'+E(x.url)+'" target="_blank">'+E(x.title)+'</a></div><div class="nim">'+(s.score!=null?'<span class="hls '+(s.score<0?'hn':'hp')+'">'+s.score.toFixed(2)+'</span>':'')+'<span>'+E(x.source)+'</span><span>'+(x.published?new Date(x.published).toLocaleDateString():'')+'</span></div></div>'}).join('')}).catch(function(e){c.innerHTML='<div class="empty"><p>Error: '+E(e.message)+'</p></div>';dbg('News error: '+e.message,true)})}
 function runDD(){var t=document.getElementById('ddI').value.trim().toUpperCase();if(!t){toast('Enter a ticker');return}ddTk(t)}
-function ddTk(t){document.querySelectorAll('.nav-tab').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.tc').forEach(function(x){x.classList.remove('active')});document.querySelector('[data-tab="deepdive"]').classList.add('active');document.getElementById('tab-deepdive').classList.add('active');document.getElementById('ddI').value=t;var c=document.getElementById('ddR');c.innerHTML='<div class="empty"><p>Analyzing '+E(t)+'...<br><span style="font-size:11px;color:var(--text3)">This takes 15\u201330 seconds</span></p></div>';dbg('Deep dive: '+t);api('GET','/api/scan/'+t).then(function(d){if(d.error){c.innerHTML='<div class="empty"><p>'+E(d.error)+'</p></div>';dbg('DD: '+d.error);return}dbg('DD complete: '+t+' \u2014 '+d.conviction);c.innerHTML=rCard(d)}).catch(function(e){c.innerHTML='<div class="empty"><p>Error: '+E(e.message)+'</p></div>';dbg('DD error: '+e.message,true)})}
+function ddTk(t){document.querySelectorAll('.nav-tab').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.tc').forEach(function(x){x.classList.remove('active')});document.querySelector('[data-tab="deepdive"]').classList.add('active');document.getElementById('tab-deepdive').classList.add('active');document.getElementById('ddI').value=t;var c=document.getElementById('ddR');c.innerHTML='<div class="empty"><p>Analyzing '+E(t)+'...<br><span style="font-size:11px;color:var(--text3)">This takes 15\u201330 seconds</span></p></div>';dbg('Deep dive: '+t);api('GET','/api/scan/'+t).then(function(d){if(d.error){c.innerHTML='<div class="empty"><p>'+E(d.error)+'</p></div>';dbg('DD: '+d.error);return}dbg('DD complete: '+t+' \u2014 '+d.conviction);c.innerHTML=rCard(recalcCandidate(d))}).catch(function(e){c.innerHTML='<div class="empty"><p>Error: '+E(e.message)+'</p></div>';dbg('DD error: '+e.message,true)})}
+
+// ── INIT ──
+loadSettings();renderDimToggles();
+document.getElementById('minScoreSlider').value=filterSettings.minScore;document.getElementById('minScoreVal').textContent=filterSettings.minScore;
+document.getElementById('minCritSlider').value=filterSettings.minCrit;document.getElementById('minCritVal').textContent=filterSettings.minCrit;
+document.getElementById('minElevSlider').value=filterSettings.minElev;document.getElementById('minElevVal').textContent=filterSettings.minElev;
 fetchDash();setInterval(fetchDash,30000);dbg('ShortSight initialized');
 </script>
 </body>
