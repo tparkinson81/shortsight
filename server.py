@@ -132,13 +132,15 @@ async def startup():
 
 @app.get("/api/health")
 async def health():
+    ak = os.getenv("ANTHROPIC_API_KEY", "")
     return {
         "status": "ok",
         "scanner_ready": bg.scanner is not None,
         "is_scanning": bg.is_running,
         "last_scan": bg.last_scan_time,
         "scan_count": bg.scan_count,
-        "errors": bg.errors[-3:] if bg.errors else []
+        "errors": bg.errors[-3:] if bg.errors else [],
+        "anthropic_key": (ak[:10] + "...") if ak else "MISSING",
     }
 
 
@@ -201,8 +203,10 @@ def _call_anthropic(system_prompt: str, user_prompt: str) -> str:
     if not api_key:
         return "[ERROR: ANTHROPIC_API_KEY not set in environment variables]"
     
+    print(f"  [Anthropic] Key prefix: {api_key[:12]}... length={len(api_key)}")
+    
     payload = json.dumps({
-        "model": "claude-sonnet-4-5-20250514",
+        "model": "claude-sonnet-4-5-20250929",
         "max_tokens": 16000,
         "system": system_prompt,
         "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 10}],
@@ -215,19 +219,27 @@ def _call_anthropic(system_prompt: str, user_prompt: str) -> str:
         headers={
             "Content-Type": "application/json",
             "x-api-key": api_key,
-            "anthropic-version": "2023-06-01"
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "interleaved-thinking-2025-05-14"
         }
     )
     
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = json.loads(resp.read().decode())
-            # Extract text from response content blocks
             text_parts = []
             for block in data.get("content", []):
                 if block.get("type") == "text":
                     text_parts.append(block["text"])
             return "\n".join(text_parts) if text_parts else "[No response]"
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode()[:500]
+        except:
+            pass
+        print(f"  [Anthropic] HTTP {e.code}: {body}")
+        return f"[API Error: HTTP Error {e.code}: {e.reason}. {body}]"
     except Exception as e:
         return f"[API Error: {str(e)[:200]}]"
 
