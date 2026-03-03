@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 
 from engine.sentiment import SentimentEngine
-from engine.fetchers import NewsFetcher, FMPFetcher, RedditFetcher, SECFetcher, UnusualWhalesFetcher, QuiverFetcher, StocktwitsFetcher
+from engine.fetchers import NewsFetcher, FMPFetcher, RedditFetcher, SECFetcher, UnusualWhalesFetcher, QuiverFetcher, StocktwitsFetcher, APINinjasTranscriptFetcher
 
 
 @dataclass
@@ -69,7 +69,7 @@ class ShortCandidate:
 class ShortScanner:
     """Main scanner that analyzes tickers across all data sources."""
     
-    def __init__(self, news_key: str, fmp_key: str, uw_key: str = "", quiver_key: str = ""):
+    def __init__(self, news_key: str, fmp_key: str, uw_key: str = "", quiver_key: str = "", apininjas_key: str = ""):
         self.news = NewsFetcher(news_key)
         self.fmp = FMPFetcher(fmp_key)
         self.reddit = RedditFetcher()
@@ -80,6 +80,9 @@ class ShortScanner:
         # Optional paid sources
         self.uw = UnusualWhalesFetcher(uw_key) if uw_key else None
         self.quiver = QuiverFetcher(quiver_key) if quiver_key else None
+        
+        # API Ninjas for transcript fallback
+        self.apininjas = APINinjasTranscriptFetcher(apininjas_key) if apininjas_key else None
         
         self.results_file = os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "data", "scan_results.json"
@@ -173,7 +176,16 @@ class ShortScanner:
         flags = []
         
         try:
+            # Try FMP first
             transcript = self.fmp.get_earnings_transcript(ticker)
+            
+            # Fallback to API Ninjas if FMP returns nothing
+            if (not transcript or len(transcript) < 200) and self.apininjas:
+                print(f"  [Transcript] FMP empty, trying API Ninjas for {ticker}...")
+                transcript = self.apininjas.get_transcript(ticker)
+                if transcript and len(transcript) >= 200:
+                    print(f"  [Transcript] Got {len(transcript)} chars from API Ninjas")
+            
             if not transcript or len(transcript) < 200:
                 return 0, []
             
