@@ -416,6 +416,30 @@ async def diagnose():
     return {"fmp_key_set": bool(FMP_KEY), "fmp_key_prefix": (FMP_KEY[:8] + "...") if FMP_KEY else "MISSING", "tests": results}
 
 
+@app.get("/api/quicktest")
+async def quicktest():
+    """Scan 5 tickers and return raw scores — for debugging pipeline."""
+    if not bg.scanner:
+        bg.initialize()
+    if not bg.scanner:
+        return {"error": "Scanner not initialized"}
+    
+    test_tickers = ["TSLA", "NVDA", "NKE", "INTC", "BA"]
+    results = []
+    loop = asyncio.get_event_loop()
+    for t in test_tickers:
+        try:
+            r = await loop.run_in_executor(None, bg.scanner.scan_ticker, t)
+            if r:
+                results.append({"ticker": t, "total_score": r["total_score"], "conviction": r["conviction"],
+                                "scores": r["scores"], "critical": r["critical_count"], "elevated": r["elevated_count"]})
+            else:
+                results.append({"ticker": t, "total_score": 0, "conviction": "filtered", "scores": {}, "note": "returned None"})
+        except Exception as e:
+            results.append({"ticker": t, "error": str(e)})
+    return {"test_results": results}
+
+
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
