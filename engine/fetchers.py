@@ -129,12 +129,74 @@ class FMPFetcher:
         return []
     
     def get_insider_trades(self, ticker: str) -> List[Dict]:
-        """Get insider trades. Tries multiple stable API path variants."""
-        for ep in ["insider-trading/latest", "insider-trading", "insider-trade"]:
-            data = self._get(ep, {"symbol": ticker, "limit": "50"})
-            if isinstance(data, list) and data:
-                return data
-        return []
+        """Get insider trades via SEC EDGAR Form 4 full-text search.
+        Returns data in FMP-compatible format for seamless scanner integration."""
+        from_date = (datetime.utcnow() - timedelta(days=90)).strftime("%Y-%m-%d")
+        to_date = datetime.utcnow().strftime("%Y-%m-%d")
+        
+        try:
+            params = urllib.parse.urlencode({
+                "q": f'"{ticker}"',
+                "dateRange": "custom",
+                "startdt": from_date,
+                "enddt": to_date,
+                "forms": "4",
+            })
+            url = f"https://efts.sec.gov/LATEST/search-index?{params}"
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "ShortSight research@shortsight.app",
+                "Accept": "application/json"
+            })
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                result = json.loads(resp.read().decode())
+            
+            hits = result.get("hits", {}).get("hits", [])
+            if not hits:
+                print(f"  [Insider] SEC EDGAR: 0 Form 4 filings for {ticker}")
+                return []
+            
+            trades = []
+            for h in hits[:40]:
+                src = h.get("_source", {})
+                names = src.get("display_names", [])
+                file_date = src.get("file_date", "")
+                entity = src.get("entity_name", "")
+                
+                # Determine transaction type from filing description
+                desc = " ".join(names).lower() if names else ""
+                if "disposed" in desc or "sale" in desc or "sold" in desc:
+                    tx_type = "S-Sale"
+                elif "acquired" in desc or "purchase" in desc or "bought" in desc:
+                    tx_type = "P-Purchase"
+                else:
+                    tx_type = "S-Sale"  # Form 4s are most commonly sales
+                
+                # Try to infer role from entity name
+                filer = names[0] if names else ""
+                role = ""
+                for title_word in ["CEO", "CFO", "COO", "CTO", "President", "Chief", "Officer", "Director", "VP"]:
+                    if title_word.lower() in desc.lower():
+                        role = title_word
+                        break
+                
+                trades.append({
+                    "symbol": ticker,
+                    "filingDate": file_date,
+                    "transactionDate": file_date,
+                    "transactionType": tx_type,
+                    "reportingName": filer,
+                    "typeOfOwner": role or "insider",
+                    "securitiesTransacted": 0,  # SEC search doesn't give share counts
+                    "price": 0,  # SEC search doesn't give prices
+                    "source": "SEC_EDGAR_FORM4"
+                })
+            
+            print(f"  [Insider] SEC EDGAR: {len(trades)} Form 4 filings for {ticker}")
+            return trades
+            
+        except Exception as e:
+            print(f"  [Insider] SEC EDGAR error for {ticker}: {e}")
+            return []
     
     def get_analyst_estimates(self, ticker: str) -> List[Dict]:
         """Get analyst estimates. Tries with required period/page params."""
