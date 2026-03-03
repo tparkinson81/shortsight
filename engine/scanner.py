@@ -928,24 +928,12 @@ class ShortScanner:
         # Deep scan
         print(f"  Pass 2: Deep analysis...")
         results = []
-        all_scored = []  # Keep everything for fallback
         for i, ticker in enumerate(candidates):
             print(f"  [{i+1}/{len(candidates)}] {ticker}")
             r = self.scan_ticker(ticker)
             if r:
-                all_scored.append(r)
-                # Primary filter: at least 1 critical or 2 elevated signals
-                crit = r.get("critical_count", 0)
-                elev = r.get("elevated_count", 0)
-                if crit >= 1 or elev >= 2:
-                    results.append(r)
+                results.append(r)
             time.sleep(0.3)
-        
-        # Fallback: if strict filter yields nothing, take top 10 by score
-        if not results and all_scored:
-            print(f"  No tickers passed signal filter — falling back to top 10 by raw score")
-            all_scored.sort(key=lambda x: x.get("total_score", 0), reverse=True)
-            results = all_scored[:10]
         
         # Sort by critical signal count → elevated count → total score
         results.sort(key=lambda x: (
