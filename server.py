@@ -331,6 +331,53 @@ async def dashboard():
 # STATIC FILES & DASHBOARD
 # ════════════════════════════════════════════
 
+@app.get("/api/diagnose")
+async def diagnose():
+    """Test every FMP endpoint and report what works."""
+    import urllib.request as ureq, urllib.parse as uparse
+    base = "https://financialmodelingprep.com/stable"
+    key = FMP_KEY
+    results = {}
+    tests = {
+        "profile": f"{base}/profile?symbol=AAPL&apikey={key}",
+        "sp500-constituent": f"{base}/sp500-constituent?apikey={key}",
+        "income-statement": f"{base}/income-statement?symbol=AAPL&period=quarter&limit=2&apikey={key}",
+        "earnings-surprises": f"{base}/earnings-surprises?symbol=AAPL&apikey={key}",
+        "insider-trading": f"{base}/insider-trading?symbol=AAPL&limit=5&apikey={key}",
+        "analyst-estimates": f"{base}/analyst-estimates?symbol=AAPL&limit=1&apikey={key}",
+        "analyst-recommendations": f"{base}/analyst-recommendations?symbol=AAPL&apikey={key}",
+        "stock-grade": f"{base}/stock-grade?symbol=AAPL&limit=3&apikey={key}",
+        "key-metrics": f"{base}/key-metrics?symbol=AAPL&period=ttm&apikey={key}",
+        "shares-float": f"{base}/shares-float?symbol=AAPL&apikey={key}",
+        "news_stock_latest": f"{base}/news/stock-latest?symbol=AAPL&limit=5&apikey={key}",
+        "stock_news_old": f"{base}/stock-news?symbol=AAPL&limit=5&apikey={key}",
+        "transcript_dates": f"{base}/earning-call-transcript-available-dates?symbol=AAPL&apikey={key}",
+        "senate_rss": f"{base}/senate-trading-rss-feed?apikey={key}",
+        "senate_trading": f"{base}/senate-trading?apikey={key}",
+        "house_rss": f"{base}/house-disclosure-rss-feed?apikey={key}",
+        "price-target-consensus": f"{base}/price-target-consensus?symbol=AAPL&apikey={key}",
+    }
+    for name, url in tests.items():
+        try:
+            req = ureq.Request(url, headers={"User-Agent": "ShortSight/1.0"})
+            with ureq.urlopen(req, timeout=10) as resp:
+                raw = resp.read().decode()
+                data = json.loads(raw)
+                if isinstance(data, list):
+                    results[name] = {"ok": True, "count": len(data), "keys": list(data[0].keys())[:8] if data and isinstance(data[0], dict) else []}
+                elif isinstance(data, dict):
+                    err = data.get("Error Message", data.get("error", ""))
+                    if err:
+                        results[name] = {"ok": False, "error": str(err)[:150]}
+                    else:
+                        results[name] = {"ok": True, "keys": list(data.keys())[:8]}
+                else:
+                    results[name] = {"ok": True, "type": str(type(data))}
+        except Exception as e:
+            results[name] = {"ok": False, "error": str(e)[:150]}
+    return {"fmp_key_set": bool(FMP_KEY), "fmp_key_prefix": (FMP_KEY[:8] + "...") if FMP_KEY else "MISSING", "tests": results}
+
+
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
