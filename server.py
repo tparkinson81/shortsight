@@ -172,6 +172,157 @@ async def scan_single_ticker(ticker: str):
     return {"error": f"Could not analyze {ticker} — no data available or score below threshold."}
 
 
+# ── Deep Research ──
+
+RESEARCH_TEMPLATE = {
+    "Business": ["Company Name", "Ticker", "Description", "Industry", "Market Capitalization", "Fully Diluted Shares", "Short Interest", "Total Debt", "EBITDA", "Adj. Free Cash Flow", "Origin of Idea"],
+    "10K and Financials": ["History", "Accounting Policy (Changes)", "Revenue Recognition", "Business", "Undervalued Property", "Unions", "Litigation", "Management Contracts", "Competitive Position", "Risk Disclosure", "Atypical Line Items", "Off Balance Sheet Liabilities (SPV, Contingency, Operating Leases, Guarantees)", "Debt Schedule", "Valuation Allowance", "NOLs", "Inventories (FIFO/LIFO)", "Tax Rate", "Depreciation Expense / Gross PPE", "Operating Cash Flow / Net Income", "Margins Rising / Falling", "Cap Ex Rising / Falling", "Liquidity", "Other Comprehensive Income / Shareholder Equity", "Options Use"],
+    "Competitive Advantage": ["Summary", "Company Age", "Industry Age", "ROE (Rising / Falling)", "Pre-Tax Margin (Rising / Falling)", "Gross Margin (Rising / Falling)", "Technology Threat", "Market Share (Rising / Falling)", "Strategy"],
+    "Pension and OPEB": ["Pension Deficit / Excess", "Discount Rate", "Expected Return", "Total Added Liability"],
+    "10Q": ["Covenants", "Events since Quarter-end", "Inventory Bloat", "DSO Bloat", "Deferred Revenue Comparable", "Litigation Update", "Reported Shares Outstanding"],
+    "Corporate Governance": ["Proxy Filing Deadline", "Related Party Transactions", "Compensation", "Number of Directors", "Classified", "Term", "Management Bonus Tied to", "Employee Directors", "Poison Pill", "Golden Parachutes", "Change of Control", "Standstill Agreement", "State of Incorporation", "Share Classes (Dual / Supervoting)", "Management Control via Share Ownership", "Founding Family", "Previous LBO, MBO", "Previous Takeover Defense", "Current Involvement of Investment Firm"],
+    "8K": ["Auditor Comments", "Offering Documents", "Disclosure Statement", "Shelf Registration", "Secondary Purchase Offering", "IPO Filing Date"],
+    "News": ["X", "Reddit", "Substack", "Seeking Alpha"],
+    "Comps": ["Public Comps", "Private Comps", "Buyout Comps", "Previous Bids"],
+    "Insider Trading": ["Overall", "Automatic Selling", "Trend"],
+    "Earnings Call": ["Date", "Attendees", "Commentary", "Q&A"],
+    "Investigative Journalism": ["Glassdoor Reviews", "Data Search", "FOIA"],
+    "Valuation": ["Value Range", "Current Price", "Discount", "Annual Sales", "MVE / FCF", "EV / EBITDA", "Historical ROI", "Industry Growth Rate"],
+    "Timeline and Catalysts": ["Potential Catalysts"],
+    "Conclusion": ["Management Quality", "Competitive Position", "Activism", "Public Control", "Downside", "Overall"],
+}
+
+
+def _call_anthropic(system_prompt: str, user_prompt: str) -> str:
+    """Call Anthropic API with web search."""
+    import urllib.request
+    
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return "[ERROR: ANTHROPIC_API_KEY not set in environment variables]"
+    
+    payload = json.dumps({
+        "model": "claude-sonnet-4-5-20250514",
+        "max_tokens": 16000,
+        "system": system_prompt,
+        "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 10}],
+        "messages": [{"role": "user", "content": user_prompt}]
+    }).encode()
+    
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01"
+        }
+    )
+    
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode())
+            # Extract text from response content blocks
+            text_parts = []
+            for block in data.get("content", []):
+                if block.get("type") == "text":
+                    text_parts.append(block["text"])
+            return "\n".join(text_parts) if text_parts else "[No response]"
+    except Exception as e:
+        return f"[API Error: {str(e)[:200]}]"
+
+
+def _research_section(ticker: str, company_name: str, section: str, fields: list) -> Dict:
+    """Research one section of the template."""
+    fields_list = "\n".join(f"- {f}" for f in fields)
+    
+    system = f"""You are a professional short-selling research analyst conducting deep due diligence on {ticker} ({company_name}). 
+You must research and fill out each field with specific, factual data. Use web search to find current, accurate information.
+Be concise but thorough. Include specific numbers, dates, and facts where possible.
+If information is genuinely unavailable, say "Not found" — never fabricate data.
+
+CRITICAL: Respond ONLY with valid JSON. No markdown, no backticks, no preamble. 
+The JSON should be an object where each key is the field name and the value is your research finding as a string."""
+
+    user = f"""Research the following fields for {ticker} ({company_name}) under the "{section}" category:
+
+{fields_list}
+
+Respond with a JSON object mapping each field name to your finding. Example format:
+{{"Field Name": "Your detailed finding here", "Another Field": "Finding"}}"""
+
+    raw = _call_anthropic(system, user)
+    
+    # Parse JSON from response
+    try:
+        # Strip any markdown fencing
+        clean = raw.strip()
+        if clean.startswith("```"):
+            clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
+            if clean.endswith("```"):
+                clean = clean[:-3]
+            clean = clean.strip()
+        if clean.startswith("json"):
+            clean = clean[4:].strip()
+        result = json.loads(clean)
+        return result
+    except json.JSONDecodeError:
+        # Return raw text mapped to first field
+        return {fields[0]: raw, **{f: "[Parse error — see first field]" for f in fields[1:]}}
+
+
+@app.get("/api/research/template")
+async def get_research_template():
+    """Return the research template structure."""
+    return {"sections": RESEARCH_TEMPLATE}
+
+
+@app.get("/api/research/{ticker}")
+async def run_research(ticker: str):
+    """Run deep research on a ticker, filling out all template sections."""
+    ticker = ticker.upper().strip()
+    
+    # Check for Anthropic API key
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        return {"error": "ANTHROPIC_API_KEY not set. Add it to Railway environment variables."}
+    
+    # Get company name from FMP
+    company_name = ticker
+    if bg.scanner:
+        try:
+            profile = bg.scanner.fmp.get_profile(ticker)
+            company_name = profile.get("companyName", ticker)
+        except:
+            pass
+    
+    print(f"\n  [Research] Starting deep research on {ticker} ({company_name})...")
+    
+    # Research each section
+    loop = asyncio.get_event_loop()
+    results = {}
+    section_list = list(RESEARCH_TEMPLATE.items())
+    
+    for section_name, fields in section_list:
+        print(f"  [Research] Researching: {section_name} ({len(fields)} fields)")
+        try:
+            section_data = await loop.run_in_executor(
+                None, _research_section, ticker, company_name, section_name, fields
+            )
+            results[section_name] = section_data
+        except Exception as e:
+            print(f"  [Research] Error in {section_name}: {e}")
+            results[section_name] = {f: f"[Error: {str(e)[:100]}]" for f in fields}
+    
+    print(f"  [Research] Complete — {len(results)} sections filled")
+    
+    return {
+        "ticker": ticker,
+        "company_name": company_name,
+        "researched_at": datetime.utcnow().isoformat(),
+        "sections": results
+    }
+
+
 # ── Watchlist ──
 
 @app.get("/api/watchlist")
