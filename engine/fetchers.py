@@ -103,6 +103,7 @@ class FMPFetcher:
                 "pe": p.get("pe", 0),
                 "changes": p.get("changes", 0),
                 "changesPercentage": p.get("changesPercentage", 0),
+                "range": p.get("range", ""),  # "52wLow-52wHigh"
             }
         return {"companyName": ticker}
     
