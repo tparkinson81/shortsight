@@ -468,6 +468,18 @@ async def quicktest():
     except Exception as e:
         fmp_test["shares_float"] = {"ok": False, "error": str(e)}
     
+    # Batch profile check — this is what _quick_screen uses
+    try:
+        batch_raw = bg.scanner.fmp.get_batch_profiles(["TSLA", "AAPL", "NVDA"])
+        if isinstance(batch_raw, list) and batch_raw:
+            fmp_test["batch_profile_count"] = len(batch_raw)
+            fmp_test["batch_profile_keys"] = list(batch_raw[0].keys())[:20]
+            fmp_test["batch_profile_sample"] = {k: batch_raw[0].get(k) for k in ["symbol", "pe", "changes", "mktCap", "price", "changesPercentage", "companyName"]}
+        else:
+            fmp_test["batch_profile"] = {"ok": False, "data": str(batch_raw)[:300]}
+    except Exception as e:
+        fmp_test["batch_profile"] = {"ok": False, "error": str(e)}
+    
     # Then scan tickers
     test_tickers = ["TSLA", "NVDA", "NKE", "INTC", "BA"]
     results = []
