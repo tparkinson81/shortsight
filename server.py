@@ -20,6 +20,7 @@ NEWS_KEY = os.getenv("NEWS_API_KEY", "")
 FMP_KEY = os.getenv("FMP_API_KEY", "")
 UW_KEY = os.getenv("UNUSUAL_WHALES_API_KEY", "")
 QUIVER_KEY = os.getenv("QUIVER_API_KEY", "")
+APININJAS_KEY = os.getenv("APININJAS_KEY", "")
 
 
 # ── FastAPI App ──
@@ -66,7 +67,7 @@ class BackgroundScanner:
         
         try:
             from engine.scanner import ShortScanner
-            self.scanner = ShortScanner(NEWS_KEY, FMP_KEY, UW_KEY, QUIVER_KEY)
+            self.scanner = ShortScanner(NEWS_KEY, FMP_KEY, UW_KEY, QUIVER_KEY, APININJAS_KEY)
             print("  Scanner module loaded successfully")
             return True
         except Exception as e:
@@ -333,29 +334,53 @@ async def dashboard():
 
 @app.get("/api/diagnose")
 async def diagnose():
-    """Test every FMP endpoint and report what works."""
+    """Test every FMP endpoint path variant and report what works."""
     import urllib.request as ureq, urllib.parse as uparse
     base = "https://financialmodelingprep.com/stable"
     key = FMP_KEY
     results = {}
     tests = {
+        # Known working
         "profile": f"{base}/profile?symbol=AAPL&apikey={key}",
         "sp500-constituent": f"{base}/sp500-constituent?apikey={key}",
         "income-statement": f"{base}/income-statement?symbol=AAPL&period=quarter&limit=2&apikey={key}",
-        "earnings-surprises": f"{base}/earnings-surprises?symbol=AAPL&apikey={key}",
-        "insider-trading": f"{base}/insider-trading?symbol=AAPL&limit=5&apikey={key}",
-        "analyst-estimates": f"{base}/analyst-estimates?symbol=AAPL&limit=1&apikey={key}",
-        "analyst-recommendations": f"{base}/analyst-recommendations?symbol=AAPL&apikey={key}",
-        "stock-grade": f"{base}/stock-grade?symbol=AAPL&limit=3&apikey={key}",
         "key-metrics": f"{base}/key-metrics?symbol=AAPL&period=ttm&apikey={key}",
         "shares-float": f"{base}/shares-float?symbol=AAPL&apikey={key}",
         "news_stock_latest": f"{base}/news/stock-latest?symbol=AAPL&limit=5&apikey={key}",
-        "stock_news_old": f"{base}/stock-news?symbol=AAPL&limit=5&apikey={key}",
-        "transcript_dates": f"{base}/earning-call-transcript-available-dates?symbol=AAPL&apikey={key}",
-        "senate_rss": f"{base}/senate-trading-rss-feed?apikey={key}",
-        "senate_trading": f"{base}/senate-trading?apikey={key}",
-        "house_rss": f"{base}/house-disclosure-rss-feed?apikey={key}",
         "price-target-consensus": f"{base}/price-target-consensus?symbol=AAPL&apikey={key}",
+        # Earnings surprises variants
+        "earnings-surprises": f"{base}/earnings-surprises?symbol=AAPL&apikey={key}",
+        "earnings-surprise": f"{base}/earnings-surprise?symbol=AAPL&apikey={key}",
+        # Insider trading variants
+        "insider-trading": f"{base}/insider-trading?symbol=AAPL&limit=5&apikey={key}",
+        "insider-trading/latest": f"{base}/insider-trading/latest?symbol=AAPL&limit=5&apikey={key}",
+        "insider-trade": f"{base}/insider-trade?symbol=AAPL&limit=5&apikey={key}",
+        # Analyst estimates variants
+        "analyst-estimates_bare": f"{base}/analyst-estimates?symbol=AAPL&limit=1&apikey={key}",
+        "analyst-estimates_full": f"{base}/analyst-estimates?symbol=AAPL&period=annual&page=0&limit=1&apikey={key}",
+        # Analyst recommendations variants
+        "analyst-recommendations": f"{base}/analyst-recommendations?symbol=AAPL&apikey={key}",
+        "analyst-stock-recommendations": f"{base}/analyst-stock-recommendations?symbol=AAPL&apikey={key}",
+        "recommendations": f"{base}/recommendations?symbol=AAPL&apikey={key}",
+        # Grades variants
+        "stock-grade": f"{base}/stock-grade?symbol=AAPL&limit=3&apikey={key}",
+        "grades": f"{base}/grades?symbol=AAPL&limit=3&apikey={key}",
+        "grades-summary": f"{base}/grades-summary?symbol=AAPL&apikey={key}",
+        # Transcript variants
+        "transcript_dates_v1": f"{base}/earning-call-transcript-available-dates?symbol=AAPL&apikey={key}",
+        "transcript_dates_v2": f"{base}/earnings-transcript-list?symbol=AAPL&apikey={key}",
+        "transcript_v1": f"{base}/earning-call-transcript?symbol=AAPL&year=2024&quarter=4&apikey={key}",
+        "transcript_v2": f"{base}/earnings-transcript?symbol=AAPL&year=2024&quarter=4&apikey={key}",
+        # Congressional trading variants
+        "senate-trading-rss": f"{base}/senate-trading-rss-feed?limit=5&apikey={key}",
+        "senate-trading": f"{base}/senate-trading?limit=5&apikey={key}",
+        "senate-disclosure": f"{base}/senate-disclosure?limit=5&apikey={key}",
+        "senate-trade": f"{base}/senate-trade?limit=5&apikey={key}",
+        "house-disclosure-rss": f"{base}/house-disclosure-rss-feed?limit=5&apikey={key}",
+        "house-disclosure": f"{base}/house-disclosure?limit=5&apikey={key}",
+        "house-trade": f"{base}/house-trade?limit=5&apikey={key}",
+        # Ratings
+        "ratings-snapshot": f"{base}/ratings-snapshot?symbol=AAPL&apikey={key}",
     }
     for name, url in tests.items():
         try:
@@ -375,6 +400,19 @@ async def diagnose():
                     results[name] = {"ok": True, "type": str(type(data))}
         except Exception as e:
             results[name] = {"ok": False, "error": str(e)[:150]}
+    
+    # API Ninjas test (if key is set)
+    ninjas_key = os.environ.get("APININJAS_KEY", "")
+    if ninjas_key:
+        try:
+            url = f"https://api.api-ninjas.com/v1/earningstranscriptsearch?ticker=AAPL"
+            req = ureq.Request(url, headers={"X-Api-Key": ninjas_key, "Accept": "application/json"})
+            with ureq.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+                results["apininjas_transcripts"] = {"ok": True, "count": len(data) if isinstance(data, list) else 1}
+        except Exception as e:
+            results["apininjas_transcripts"] = {"ok": False, "error": str(e)[:150]}
+    
     return {"fmp_key_set": bool(FMP_KEY), "fmp_key_prefix": (FMP_KEY[:8] + "...") if FMP_KEY else "MISSING", "tests": results}
 
 
