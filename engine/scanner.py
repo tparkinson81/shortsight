@@ -640,8 +640,8 @@ class ShortScanner:
                       "short_interest":c.short_interest_score,"congress":c.congress_score,"options_flow":c.options_flow_score,
                       "social":c.social_score,"sec":c.sec_score,"analyst":c.analyst_score}
         
-        critical = [d for d,s in dim_scores.items() if dim_maxes[d] > 0 and s/dim_maxes[d] >= 0.8]
-        elevated = [d for d,s in dim_scores.items() if dim_maxes[d] > 0 and 0.6 <= s/dim_maxes[d] < 0.8]
+        critical = [d for d,s in dim_scores.items() if dim_maxes[d] > 0 and s/dim_maxes[d] >= 0.7]
+        elevated = [d for d,s in dim_scores.items() if dim_maxes[d] > 0 and 0.5 <= s/dim_maxes[d] < 0.7]
         
         dim_labels = {"news":"news sentiment","transcript":"earnings call language","insider":"insider selling",
                       "earnings":"earnings quality","short_interest":"short interest","congress":"congressional trading",
@@ -679,7 +679,7 @@ class ShortScanner:
                 continue
             max_val = dim_maxes.get(dim, 1)
             pct = dim_score / max_val if max_val > 0 else 0
-            if pct < 0.6:
+            if pct < 0.5:
                 continue  # Only show elevated+ signals in thesis
             
             tier = "🔥 CRITICAL" if pct >= 0.8 else "⚠️ ELEVATED"
@@ -766,21 +766,21 @@ class ShortScanner:
                 "social": c.social_score, "sec": c.sec_score, "analyst": c.analyst_score,
             }
             
-            critical_signals = []  # 80%+ of max
-            elevated_signals = []  # 60%+ of max
+            critical_signals = []  # 70%+ of max
+            elevated_signals = []  # 50%+ of max
             
             for dim, score_val in dimension_scores.items():
                 max_val = dimension_maxes[dim]
                 if max_val == 0:
                     continue
                 pct = score_val / max_val
-                if pct >= 0.8:
+                if pct >= 0.7:
                     critical_signals.append(dim)
-                elif pct >= 0.6:
+                elif pct >= 0.5:
                     elevated_signals.append(dim)
             
             # FILTER: Must have at least 1 critical signal
-            if not critical_signals:
+            if not critical_signals and len(elevated_signals) < 2:
                 return None
             
             # Conviction based on signal strength, not total score
@@ -788,12 +788,14 @@ class ShortScanner:
                 c.conviction = "Very Strong"
             elif len(critical_signals) >= 2:
                 c.conviction = "Strong"
-            elif len(critical_signals) >= 1 and len(elevated_signals) >= 2:
-                c.conviction = "Strong"
             elif len(critical_signals) >= 1 and len(elevated_signals) >= 1:
+                c.conviction = "Strong"
+            elif len(critical_signals) >= 1:
+                c.conviction = "Moderate"
+            elif len(elevated_signals) >= 3:
                 c.conviction = "Moderate"
             else:
-                c.conviction = "Moderate"
+                c.conviction = "Emerging"
             
             # Risks
             c.risks = self._assess_risks(c)
@@ -818,7 +820,7 @@ class ShortScanner:
             print(f"  ✗ {ticker}: Error — {e}")
             return None
     
-    def run_scan(self, max_deep: int = 30) -> Dict:
+    def run_scan(self, max_deep: int = 50) -> Dict:
         """
         Full scan: quick screen S&P 500, then deep analysis on candidates.
         """
@@ -904,15 +906,17 @@ class ShortScanner:
                     changes = p.get("changes") or 0
                     mktCap = p.get("mktCap") or 0
                     
-                    if mktCap < 2_000_000_000:
+                    if mktCap < 1_000_000_000:
                         continue
                     
                     # Flag for deeper analysis
-                    if pe > 50 or pe < 0:
+                    if pe > 35 or pe < 0:
                         candidates.append(sym)
-                    elif changes < -2:
+                    elif changes < -1:
                         candidates.append(sym)
-                    elif pe > 30 and changes < 0:
+                    elif pe > 20 and changes < 0:
+                        candidates.append(sym)
+                    elif pe == 0:
                         candidates.append(sym)
                 
                 time.sleep(0.3)
