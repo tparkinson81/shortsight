@@ -847,8 +847,14 @@ class ShortScanner:
                 elif pct >= 0.4:
                     elevated_signals.append(dim)
             
-            # FILTER: Must have at least 1 critical or 2 elevated signals
-            if not critical_signals and len(elevated_signals) < 2:
+            # Log every ticker's scores for debugging
+            score_summary = " | ".join(f"{d}:{s}" for d,s in dimension_scores.items() if s > 0)
+            print(f"    Scores: {score_summary or '(all zero)'} | total={c.total_score}")
+            print(f"    Critical: {critical_signals} | Elevated: {elevated_signals}")
+            
+            # Skip tickers with no signal at all
+            if c.total_score == 0:
+                print(f"  ✗ {ticker}: Filtered out — zero score")
                 return None
             
             # Conviction based on signal strength
@@ -891,10 +897,6 @@ class ShortScanner:
         except Exception as e:
             print(f"  ✗ {ticker}: Error — {e}")
             return None
-            
-        except Exception as e:
-            print(f"  ✗ {ticker}: Error — {e}")
-            return None
     
     def run_scan(self, max_deep: int = 75) -> Dict:
         """
@@ -926,12 +928,24 @@ class ShortScanner:
         # Deep scan
         print(f"  Pass 2: Deep analysis...")
         results = []
+        all_scored = []  # Keep everything for fallback
         for i, ticker in enumerate(candidates):
             print(f"  [{i+1}/{len(candidates)}] {ticker}")
             r = self.scan_ticker(ticker)
             if r:
-                results.append(r)
+                all_scored.append(r)
+                # Primary filter: at least 1 critical or 2 elevated signals
+                crit = r.get("critical_count", 0)
+                elev = r.get("elevated_count", 0)
+                if crit >= 1 or elev >= 2:
+                    results.append(r)
             time.sleep(0.3)
+        
+        # Fallback: if strict filter yields nothing, take top 10 by score
+        if not results and all_scored:
+            print(f"  No tickers passed signal filter — falling back to top 10 by raw score")
+            all_scored.sort(key=lambda x: x.get("total_score", 0), reverse=True)
+            results = all_scored[:10]
         
         # Sort by critical signal count → elevated count → total score
         results.sort(key=lambda x: (
