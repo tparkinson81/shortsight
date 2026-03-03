@@ -40,8 +40,8 @@ class ShortCandidate:
     insider_score: int = 0
     earnings_score: int = 0
     short_interest_score: int = 0
-    congress_score: int = 0
-    options_flow_score: int = 0
+    valuation_score: int = 0
+    price_action_score: int = 0
     social_score: int = 0
     sec_score: int = 0
     analyst_score: int = 0
@@ -51,8 +51,8 @@ class ShortCandidate:
     insider_flags: List[str] = field(default_factory=list)
     earnings_flags: List[str] = field(default_factory=list)
     short_interest_flags: List[str] = field(default_factory=list)
-    congress_flags: List[str] = field(default_factory=list)
-    options_flow_flags: List[str] = field(default_factory=list)
+    valuation_flags: List[str] = field(default_factory=list)
+    price_action_flags: List[str] = field(default_factory=list)
     social_flags: List[str] = field(default_factory=list)
     sec_flags: List[str] = field(default_factory=list)
     analyst_flags: List[str] = field(default_factory=list)
@@ -317,43 +317,27 @@ class ShortScanner:
         score = 0
         flags = []
         
-        # Earnings surprises
-        surprises = self.fmp.get_earnings_surprises(ticker)
-        if surprises:
-            misses = 0
-            for q in surprises[:4]:
-                actual = q.get("actualEarningResult") or q.get("eps")
-                est = q.get("estimatedEarning") or q.get("epsEstimated")
-                if actual is not None and est is not None and est != 0:
-                    surprise = ((actual - est) / abs(est)) * 100
-                    if surprise < -2:
-                        misses += 1
-            
-            if misses >= 3:
-                score += 12
-                flags.append(f"Missed EPS in {misses}/4 recent quarters — chronic underperformance")
-            elif misses >= 2:
-                score += 8
-                flags.append(f"Missed EPS in {misses}/4 recent quarters")
-            elif misses >= 1:
-                score += 4
-                flags.append(f"Missed EPS in most recent quarter")
-        
-        # Income statement trends
+        # Income statement trends (working on Premium)
         stmts = self.fmp.get_income_statements(ticker)
-        if stmts and len(stmts) >= 3:
+        if stmts and len(stmts) >= 2:
             revenues = [s.get("revenue", 0) or 0 for s in stmts[:4]]
             margins = []
+            net_incomes = []
             for s in stmts[:4]:
                 rev = s.get("revenue", 0) or 0
                 gp = s.get("grossProfit", 0) or 0
+                ni = s.get("netIncome", 0) or 0
                 if rev > 0:
                     margins.append(round((gp / rev) * 100, 1))
+                net_incomes.append(ni)
             
             # Revenue deceleration
             if len(revenues) >= 2 and revenues[1] > 0:
                 growth = ((revenues[0] - revenues[1]) / abs(revenues[1])) * 100
-                if growth < -5:
+                if growth < -10:
+                    score += 7
+                    flags.append(f"Revenue contracting sharply {growth:.1f}% QoQ")
+                elif growth < -5:
                     score += 5
                     flags.append(f"Revenue contracting {growth:.1f}% QoQ")
                 elif growth < 0:
@@ -364,20 +348,20 @@ class ShortScanner:
             if len(margins) >= 2 and margins[-1] > margins[0] + 3:
                 score += 4
                 flags.append(f"Gross margins compressing: {margins[-1]:.1f}% → {margins[0]:.1f}%")
-        
-        # Estimate revisions
-        estimates = self.fmp.get_analyst_estimates(ticker)
-        if isinstance(estimates, list) and len(estimates) >= 2:
-            curr = estimates[0].get("estimatedEpsAvg")
-            prev = estimates[1].get("estimatedEpsAvg")
-            if curr and prev and prev != 0:
-                rev_pct = ((curr - prev) / abs(prev)) * 100
-                if rev_pct < -10:
-                    score += 4
-                    flags.append(f"EPS estimates cut {abs(rev_pct):.0f}%")
-                elif rev_pct < -5:
-                    score += 2
-                    flags.append(f"EPS estimates revised down {abs(rev_pct):.0f}%")
+            
+            # Net income declining
+            if len(net_incomes) >= 2 and net_incomes[1] > 0:
+                if net_incomes[0] < 0 and net_incomes[1] > 0:
+                    score += 5
+                    flags.append(f"Swung to net loss from profit last quarter")
+                elif net_incomes[0] < net_incomes[1] * 0.7:
+                    score += 3
+                    flags.append(f"Net income dropped {((net_incomes[0] - net_incomes[1]) / abs(net_incomes[1])) * 100:.0f}% QoQ")
+            
+            # Multi-quarter revenue decline
+            if len(revenues) >= 3 and all(revenues[i] < revenues[i+1] for i in range(min(len(revenues)-1, 2))):
+                score += 3
+                flags.append(f"Revenue declining for {min(len(revenues), 3)} consecutive quarters")
         
         return min(score, 15), flags
     
@@ -425,55 +409,82 @@ class ShortScanner:
         
         return min(score, 10), flags
     
-    # ── CONGRESSIONAL TRADING (10 pts) ──
+    # ── VALUATION (15 pts) — key-metrics ──
     
-    def score_congress(self, ticker: str) -> Tuple[int, List[str]]:
+    def score_valuation(self, ticker: str) -> Tuple[int, List[str]]:
+        """Score overvaluation signals from key metrics."""
         score = 0
         flags = []
         
         try:
-            # Check Senate trades
-            senate = self.fmp.get_senate_trades(ticker)
-            house = self.fmp.get_house_trades(ticker)
+            m = self.fmp.get_key_metrics(ticker)
+            if not m:
+                return 0, []
             
-            sells = []
-            cutoff = datetime.utcnow() - timedelta(days=90)
+            pe = m.get("peRatio", 0)
+            ps = m.get("priceToSalesRatio", 0)
+            pb = m.get("pbRatio", 0)
+            ev_ebitda = m.get("evToEbitda", 0)
+            peg = m.get("pegRatio", 0)
+            de = m.get("debtToEquity", 0)
+            roe = m.get("roe", 0)
             
-            for trade in (senate or []) + (house or []):
-                tx_type = (trade.get("type", "") or trade.get("transactionType", "") or "").lower()
-                trade_date_str = (trade.get("transactionDate", "") or trade.get("disclosureDate", ""))[:10]
-                
-                try:
-                    if trade_date_str:
-                        td = datetime.strptime(trade_date_str, "%Y-%m-%d")
-                        if td < cutoff:
-                            continue
-                except (ValueError, TypeError):
-                    continue
-                
-                if any(s in tx_type for s in ["sale", "sell", "sold"]):
-                    name = trade.get("representative", "") or trade.get("senator", "") or trade.get("name", "")
-                    amount = trade.get("amount", "") or trade.get("estimatedAmount", "")
-                    chamber = "Senate" if trade in (senate or []) else "House"
-                    sells.append({
-                        "name": name,
-                        "amount": amount,
-                        "date": trade_date_str,
-                        "chamber": chamber,
-                    })
-            
-            if len(sells) >= 3:
-                score += 8
-                names = list(set(s["name"] for s in sells if s["name"]))[:3]
-                flags.append(f"{len(sells)} congressional sell transactions — {', '.join(names)}")
-            elif len(sells) >= 1:
+            # P/E overvaluation
+            if pe > 80:
                 score += 4
-                s = sells[0]
-                flags.append(f"{s['chamber']} member {s['name']} sold {s['amount']} on {s['date']}")
+                flags.append(f"Extremely high P/E: {pe:.0f}x — priced for perfection")
+            elif pe > 50:
+                score += 3
+                flags.append(f"Very high P/E: {pe:.0f}x")
+            elif pe > 35:
+                score += 2
+                flags.append(f"Elevated P/E: {pe:.0f}x")
+            elif pe < 0:
+                score += 2
+                flags.append(f"Negative earnings (P/E: {pe:.0f}x)")
+            
+            # P/S overvaluation
+            if ps > 20:
+                score += 3
+                flags.append(f"Extreme P/S: {ps:.1f}x — revenue multiple stretched")
+            elif ps > 10:
+                score += 2
+                flags.append(f"High P/S: {ps:.1f}x")
+            elif ps > 6:
+                score += 1
+                flags.append(f"Elevated P/S: {ps:.1f}x")
+            
+            # EV/EBITDA
+            if ev_ebitda > 40:
+                score += 3
+                flags.append(f"EV/EBITDA: {ev_ebitda:.0f}x — extremely expensive")
+            elif ev_ebitda > 25:
+                score += 2
+                flags.append(f"EV/EBITDA: {ev_ebitda:.0f}x — rich valuation")
+            elif ev_ebitda < 0:
+                score += 2
+                flags.append(f"Negative EBITDA (EV/EBITDA: {ev_ebitda:.0f}x)")
+            
+            # PEG ratio (growth-adjusted)
+            if peg > 3:
+                score += 2
+                flags.append(f"PEG ratio {peg:.1f}x — overpriced relative to growth")
+            elif peg > 2:
+                score += 1
+                flags.append(f"PEG ratio {peg:.1f}x — growth not justifying price")
+            
+            # High debt + low ROE combo (weak fundamentals + leverage)
+            if de > 3 and roe < 10:
+                score += 2
+                flags.append(f"High leverage (D/E: {de:.1f}x) with weak returns (ROE: {roe:.1f}%)")
+            elif de > 5:
+                score += 1
+                flags.append(f"Very high debt/equity: {de:.1f}x")
+            
         except Exception as e:
-            print(f"  [Congress] Error for {ticker}: {e}")
+            print(f"  [Valuation] Error for {ticker}: {e}")
         
-        return min(score, 10), flags
+        return min(score, 15), flags
     
     # ── SOCIAL SENTIMENT (10 pts) — Reddit + Stocktwits + Quiver WSB ──
     
@@ -570,51 +581,68 @@ class ShortScanner:
         
         return min(score, 10), flags
     
-    # ── OPTIONS FLOW (10 pts) — Unusual Whales ──
+    # ── PRICE ACTION (10 pts) — drawdown, 52-week proximity ──
     
-    def score_options_flow(self, ticker: str) -> Tuple[int, List[str]]:
+    def score_price_action(self, ticker: str, price: float, profile: Dict) -> Tuple[int, List[str]]:
+        """Score bearish price action signals."""
         score = 0
         flags = []
         
-        if not self.uw:
-            return 0, []
-        
         try:
-            summary = self.uw.get_ticker_options_summary(ticker)
-            if not summary or summary.get("total_trades", 0) < 5:
-                return 0, []
+            # 52-week range from profile
+            range_str = profile.get("range", "")
+            if range_str and "-" in range_str:
+                parts = range_str.split("-")
+                try:
+                    low_52w = float(parts[0].strip())
+                    high_52w = float(parts[1].strip())
+                except (ValueError, IndexError):
+                    low_52w = 0
+                    high_52w = 0
+                
+                if high_52w > 0 and price > 0:
+                    # How far from 52-week high (drawdown %)
+                    drawdown = ((price - high_52w) / high_52w) * 100
+                    
+                    if drawdown < -40:
+                        score += 4
+                        flags.append(f"Down {abs(drawdown):.0f}% from 52-week high (${high_52w:.2f}) — deep drawdown")
+                    elif drawdown < -25:
+                        score += 3
+                        flags.append(f"Down {abs(drawdown):.0f}% from 52-week high (${high_52w:.2f})")
+                    elif drawdown < -15:
+                        score += 2
+                        flags.append(f"Down {abs(drawdown):.0f}% from 52-week high")
+                    
+                    # Proximity to 52-week low (approaching floor = momentum breakdown)
+                    if low_52w > 0:
+                        range_width = high_52w - low_52w
+                        if range_width > 0:
+                            position = (price - low_52w) / range_width  # 0 = at low, 1 = at high
+                            if position < 0.15:
+                                score += 3
+                                flags.append(f"Trading near 52-week low (${low_52w:.2f}) — bottom {position*100:.0f}% of range")
+                            elif position < 0.30:
+                                score += 2
+                                flags.append(f"In lower third of 52-week range")
             
-            pc_ratio = summary.get("put_call_ratio", 1.0)
-            put_pct = summary.get("put_pct", 50)
-            large_puts = summary.get("large_put_trades", 0)
-            net_premium = summary.get("net_premium", 0)
-            
-            # High put/call ratio
-            if pc_ratio > 2.0:
-                score += 4
-                flags.append(f"Put/call ratio {pc_ratio:.1f}x — heavy put buying ({put_pct:.0f}% puts)")
-            elif pc_ratio > 1.5:
+            # Recent price momentum (changesPercentage = today's move, but changes = raw $ change)
+            changes_pct = profile.get("changesPercentage", 0) or 0
+            if changes_pct < -5:
                 score += 2
-                flags.append(f"Elevated put/call ratio: {pc_ratio:.1f}x")
-            
-            # Large put trades (institutional bearish bets)
-            if large_puts >= 5:
-                score += 4
-                flags.append(f"{large_puts} large put trades (>$100K premium) — institutional bearish positioning")
-            elif large_puts >= 2:
-                score += 2
-                flags.append(f"{large_puts} large put trades detected")
-            
-            # Negative net premium (more money in puts than calls)
-            if net_premium < -500_000:
-                score += 3
-                flags.append(f"Net premium: ${net_premium/1e6:.1f}M — significantly more premium in puts")
-            elif net_premium < -100_000:
+                flags.append(f"Sharp recent decline: {changes_pct:.1f}%")
+            elif changes_pct < -2:
                 score += 1
-                flags.append(f"Net premium skewing bearish: ${net_premium/1e3:.0f}K")
+                flags.append(f"Recent weakness: {changes_pct:.1f}%")
+            
+            # High beta = amplified downside risk
+            beta = profile.get("beta", 1.0) or 1.0
+            if beta > 2.0:
+                score += 1
+                flags.append(f"High beta ({beta:.1f}) — amplified downside risk")
             
         except Exception as e:
-            print(f"  [OptionsFlow] Error for {ticker}: {e}")
+            print(f"  [PriceAction] Error for {ticker}: {e}")
         
         return min(score, 10), flags
     
@@ -675,18 +703,19 @@ class ShortScanner:
     
     def generate_summary(self, c: ShortCandidate) -> str:
         """Generate plain-English short thesis focused on strongest signals."""
-        # Count strong dimensions
-        dim_maxes = {"news":20,"transcript":15,"insider":15,"earnings":15,"short_interest":10,"congress":10,"options_flow":10,"social":10,"sec":10,"analyst":5}
-        dim_scores = {"news":c.news_score,"transcript":c.transcript_score,"insider":c.insider_score,"earnings":c.earnings_score,
-                      "short_interest":c.short_interest_score,"congress":c.congress_score,"options_flow":c.options_flow_score,
+        dim_maxes = {"news":20,"transcript":15,"insider":15,"earnings":15,"short_interest":10,
+                     "valuation":15,"price_action":10,"social":10,"sec":10,"analyst":5}
+        dim_scores = {"news":c.news_score,"transcript":c.transcript_score,"insider":c.insider_score,
+                      "earnings":c.earnings_score,"short_interest":c.short_interest_score,
+                      "valuation":c.valuation_score,"price_action":c.price_action_score,
                       "social":c.social_score,"sec":c.sec_score,"analyst":c.analyst_score}
         
-        critical = [d for d,s in dim_scores.items() if dim_maxes[d] > 0 and s/dim_maxes[d] >= 0.7]
-        elevated = [d for d,s in dim_scores.items() if dim_maxes[d] > 0 and 0.5 <= s/dim_maxes[d] < 0.7]
+        critical = [d for d,s in dim_scores.items() if dim_maxes[d] > 0 and s/dim_maxes[d] >= 0.6]
+        elevated = [d for d,s in dim_scores.items() if dim_maxes[d] > 0 and 0.4 <= s/dim_maxes[d] < 0.6]
         
         dim_labels = {"news":"news sentiment","transcript":"earnings call language","insider":"insider selling",
-                      "earnings":"earnings quality","short_interest":"short interest","congress":"congressional trading",
-                      "options_flow":"options flow","social":"social sentiment","sec":"SEC filings","analyst":"analyst activity"}
+                      "earnings":"earnings quality","short_interest":"short interest","valuation":"valuation",
+                      "price_action":"price action","social":"social sentiment","sec":"SEC filings","analyst":"analyst activity"}
         
         if len(critical) >= 3:
             crit_names = ", ".join(dim_labels.get(d,d) for d in critical)
@@ -701,18 +730,17 @@ class ShortScanner:
                 elev_names = ", ".join(dim_labels.get(d,d) for d in elevated)
                 opener += f" Supporting elevated signals in {elev_names}."
         
-        # Only include sections with meaningful scores
         sections = []
         dim_flag_map = [
             ("news", c.news_flags, c.news_score), ("transcript", c.transcript_flags, c.transcript_score),
             ("insider", c.insider_flags, c.insider_score), ("earnings", c.earnings_flags, c.earnings_score),
             ("short_interest", c.short_interest_flags, c.short_interest_score),
-            ("congress", c.congress_flags, c.congress_score), ("options_flow", c.options_flow_flags, c.options_flow_score),
+            ("valuation", c.valuation_flags, c.valuation_score), ("price_action", c.price_action_flags, c.price_action_score),
             ("social", c.social_flags, c.social_score),
             ("sec", c.sec_flags, c.sec_score), ("analyst", c.analyst_flags, c.analyst_score),
         ]
         section_labels = {"news":"NEWS","transcript":"EARNINGS CALL","insider":"INSIDERS","earnings":"EARNINGS",
-                         "short_interest":"SHORT INTEREST","congress":"CONGRESSIONAL TRADING","options_flow":"OPTIONS FLOW",
+                         "short_interest":"SHORT INTEREST","valuation":"VALUATION","price_action":"PRICE ACTION",
                          "social":"SOCIAL","sec":"SEC FILINGS","analyst":"ANALYSTS"}
         
         for dim, dim_flags, dim_score in dim_flag_map:
@@ -720,10 +748,10 @@ class ShortScanner:
                 continue
             max_val = dim_maxes.get(dim, 1)
             pct = dim_score / max_val if max_val > 0 else 0
-            if pct < 0.5:
-                continue  # Only show elevated+ signals in thesis
+            if pct < 0.4:
+                continue
             
-            tier = "🔥 CRITICAL" if pct >= 0.8 else "⚠️ ELEVATED"
+            tier = "🔥 CRITICAL" if pct >= 0.6 else "⚠️ ELEVATED"
             label = section_labels.get(dim, dim.upper())
             sections.append(f"{tier} — {label}: " + " ".join(dim_flags))
         
@@ -773,11 +801,11 @@ class ShortScanner:
             c.short_interest_score, c.short_interest_flags = self.score_short_interest(ticker)
             time.sleep(0.2)
             
-            c.congress_score, c.congress_flags = self.score_congress(ticker)
+            c.valuation_score, c.valuation_flags = self.score_valuation(ticker)
             time.sleep(0.2)
             
-            c.options_flow_score, c.options_flow_flags = self.score_options_flow(ticker)
-            time.sleep(0.2)
+            c.price_action_score, c.price_action_flags = self.score_price_action(ticker, c.price, profile)
+            time.sleep(0.1)
             
             c.social_score, c.social_flags, c.reddit_posts = self.score_social(ticker)
             time.sleep(0.2)
@@ -787,27 +815,26 @@ class ShortScanner:
             
             c.analyst_score, c.analyst_flags = self.score_analysts(ticker, c.price)
             
-            # Total (still useful for secondary ranking)
+            # Total
             c.total_score = (c.news_score + c.transcript_score + c.insider_score +
-                            c.earnings_score + c.short_interest_score + c.congress_score +
-                            c.options_flow_score + c.social_score + c.sec_score + c.analyst_score)
+                            c.earnings_score + c.short_interest_score + c.valuation_score +
+                            c.price_action_score + c.social_score + c.sec_score + c.analyst_score)
             
             # ── SIGNAL STRENGTH FILTERING ──
-            # Only surface stocks with at least 1 "critical" signal (80%+ of dimension max)
             dimension_maxes = {
                 "news": 20, "transcript": 15, "insider": 15, "earnings": 15,
-                "short_interest": 10, "congress": 10, "options_flow": 10,
+                "short_interest": 10, "valuation": 15, "price_action": 10,
                 "social": 10, "sec": 10, "analyst": 5,
             }
             dimension_scores = {
                 "news": c.news_score, "transcript": c.transcript_score,
                 "insider": c.insider_score, "earnings": c.earnings_score,
-                "short_interest": c.short_interest_score, "congress": c.congress_score,
-                "options_flow": c.options_flow_score,
+                "short_interest": c.short_interest_score, "valuation": c.valuation_score,
+                "price_action": c.price_action_score,
                 "social": c.social_score, "sec": c.sec_score, "analyst": c.analyst_score,
             }
             
-            critical_signals = []  # 60%+ of max (lowered — several data sources unavailable)
+            critical_signals = []  # 60%+ of max
             elevated_signals = []  # 40%+ of max
             
             for dim, score_val in dimension_scores.items():
@@ -824,7 +851,7 @@ class ShortScanner:
             if not critical_signals and len(elevated_signals) < 2:
                 return None
             
-            # Conviction based on signal strength, not total score
+            # Conviction based on signal strength
             if len(critical_signals) >= 3:
                 c.conviction = "Very Strong"
             elif len(critical_signals) >= 2:
@@ -848,6 +875,10 @@ class ShortScanner:
                 c.catalyst = "Deteriorating earnings trajectory — next quarterly report is the primary catalyst."
             elif c.insider_score >= 12:
                 c.catalyst = "Insiders are selling aggressively — they often know before the market does."
+            elif c.valuation_score >= 10:
+                c.catalyst = "Extreme valuation leaves no margin for error — any earnings miss or guidance cut triggers repricing."
+            elif c.price_action_score >= 7:
+                c.catalyst = "Technical breakdown underway — momentum selling could accelerate as support levels fail."
             else:
                 c.catalyst = "Monitor for continued deterioration across flagged areas over the next 30-60 days."
             
@@ -856,6 +887,10 @@ class ShortScanner:
             
             print(f"  ✓ {ticker}: {len(critical_signals)} critical, {len(elevated_signals)} elevated ({c.conviction}) — {', '.join(critical_signals)}")
             return self._to_dict(c, critical_signals, elevated_signals)
+            
+        except Exception as e:
+            print(f"  ✗ {ticker}: Error — {e}")
+            return None
             
         except Exception as e:
             print(f"  ✗ {ticker}: Error — {e}")
@@ -918,7 +953,7 @@ class ShortScanner:
                 "very_strong": len([r for r in results if r["conviction"] == "Very Strong"]),
                 "strong": len([r for r in results if r["conviction"] == "Strong"]),
                 "moderate": len([r for r in results if r["conviction"] == "Moderate"]),
-                "weak": len([r for r in results if r["conviction"] == "Weak"]),
+                "emerging": len([r for r in results if r["conviction"] == "Emerging"]),
             }
         }
         
@@ -990,20 +1025,20 @@ class ShortScanner:
         dim_labels = {
             "news": "News Sentiment", "transcript": "Earnings Call",
             "insider": "Insider Selling", "earnings": "Earnings Quality",
-            "short_interest": "Short Interest", "congress": "Congressional Trades",
-            "options_flow": "Options Flow",
+            "short_interest": "Short Interest", "valuation": "Valuation",
+            "price_action": "Price Action",
             "social": "Social Sentiment", "sec": "SEC Filings", "analyst": "Analyst Downgrades",
         }
         dim_maxes = {
             "news": 20, "transcript": 15, "insider": 15, "earnings": 15,
-            "short_interest": 10, "congress": 10, "options_flow": 10,
+            "short_interest": 10, "valuation": 15, "price_action": 10,
             "social": 10, "sec": 10, "analyst": 5,
         }
         dim_scores = {
             "news": c.news_score, "transcript": c.transcript_score,
             "insider": c.insider_score, "earnings": c.earnings_score,
-            "short_interest": c.short_interest_score, "congress": c.congress_score,
-            "options_flow": c.options_flow_score,
+            "short_interest": c.short_interest_score, "valuation": c.valuation_score,
+            "price_action": c.price_action_score,
             "social": c.social_score, "sec": c.sec_score, "analyst": c.analyst_score,
         }
         
@@ -1041,8 +1076,8 @@ class ShortScanner:
                 "insider": c.insider_score,
                 "earnings": c.earnings_score,
                 "short_interest": c.short_interest_score,
-                "congress": c.congress_score,
-                "options_flow": c.options_flow_score,
+                "valuation": c.valuation_score,
+                "price_action": c.price_action_score,
                 "social": c.social_score,
                 "sec": c.sec_score,
                 "analyst": c.analyst_score,
@@ -1053,8 +1088,8 @@ class ShortScanner:
                 "insider": c.insider_flags,
                 "earnings": c.earnings_flags,
                 "short_interest": c.short_interest_flags,
-                "congress": c.congress_flags,
-                "options_flow": c.options_flow_flags,
+                "valuation": c.valuation_flags,
+                "price_action": c.price_action_flags,
                 "social": c.social_flags,
                 "sec": c.sec_flags,
                 "analyst": c.analyst_flags,
