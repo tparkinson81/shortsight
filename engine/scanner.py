@@ -927,22 +927,20 @@ class ShortScanner:
                         "DHR","NKE","TXN","PM","UPS","NEE","RTX","LOW","BMY","AMGN"]
         print(f"  Universe: {len(universe)} tickers")
         
-        # Skip quick screen — go straight to deep scan on a sample
-        # Shuffle so we don't always scan the same tickers
-        import random
-        scan_list = list(universe)
-        random.shuffle(scan_list)
-        scan_list = scan_list[:max_deep]
-        print(f"\n  Scanning {len(scan_list)} tickers (randomized from {len(universe)})...")
+        # Scan all tickers directly — no quick screen
+        print(f"\n  Scanning all {len(universe)} tickers...")
         
         # Deep scan
         results = []
-        for i, ticker in enumerate(scan_list):
-            print(f"  [{i+1}/{len(scan_list)}] {ticker}")
+        for i, ticker in enumerate(universe):
+            print(f"  [{i+1}/{len(universe)}] {ticker}")
             r = self.scan_ticker(ticker)
             if r:
                 results.append(r)
-            time.sleep(0.3)
+            time.sleep(0.5)
+            
+            if (i + 1) % 50 == 0:
+                print(f"  --- Progress: {i+1}/{len(universe)}, {len(results)} scored so far ---")
         
         # Sort by critical signal count → elevated count → total score
         results.sort(key=lambda x: (
@@ -956,7 +954,7 @@ class ShortScanner:
         output = {
             "candidates": results,
             "universe_size": len(universe),
-            "screened": len(scan_list),
+            "screened": len(universe),
             "found": len(results),
             "scan_seconds": round(elapsed, 1),
             "scanned_at": datetime.utcnow().isoformat(),
