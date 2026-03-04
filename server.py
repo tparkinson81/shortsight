@@ -195,92 +195,145 @@ RESEARCH_TEMPLATE = {
 }
 
 
-def _call_anthropic(system_prompt: str, user_prompt: str) -> str:
-    """Call Anthropic API with web search."""
-    import urllib.request
+def _call_anthropic(system_prompt: str, user_prompt: str, max_retries: int = 3) -> str:
+    """Call Anthropic API with web search and rate limit handling."""
+    import urllib.request, urllib.error
+    import time as _time
     
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key:
         return "[ERROR: ANTHROPIC_API_KEY not set in environment variables]"
     
-    print(f"  [Anthropic] Key prefix: {api_key[:12]}... length={len(api_key)}")
-    
     payload = json.dumps({
         "model": "claude-sonnet-4-5-20250929",
-        "max_tokens": 16000,
+        "max_tokens": 4096,
         "system": system_prompt,
-        "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 10}],
+        "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}],
         "messages": [{"role": "user", "content": user_prompt}]
     }).encode()
     
-    req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "anthropic-beta": "interleaved-thinking-2025-05-14"
-        }
-    )
-    
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read().decode())
-            text_parts = []
-            for block in data.get("content", []):
-                if block.get("type") == "text":
-                    text_parts.append(block["text"])
-            return "\n".join(text_parts) if text_parts else "[No response]"
-    except urllib.error.HTTPError as e:
-        body = ""
+    for attempt in range(max_retries):
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            }
+        )
+        
         try:
-            body = e.read().decode()[:500]
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                data = json.loads(resp.read().decode())
+                # Get only the last text block (skip thinking/search narration)
+                text_parts = []
+                for block in data.get("content", []):
+                    if block.get("type") == "text":
+                        text_parts.append(block["text"])
+                # Return the last text block — that's the final answer
+                return text_parts[-1] if text_parts else "[No response]"
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode()[:500]
+            except:
+                pass
+            if e.code == 429:
+                # Rate limited — wait and retry
+                wait = 65 * (attempt + 1)  # 65s, 130s, 195s
+                print(f"  [Anthropic] Rate limited (attempt {attempt+1}/{max_retries}), waiting {wait}s...")
+                _time.sleep(wait)
+                continue
+            print(f"  [Anthropic] HTTP {e.code}: {body}")
+            return f"[API Error: HTTP Error {e.code}: {e.reason}. {body}]"
+        except Exception as e:
+            return f"[API Error: {str(e)[:200]}]"
+    
+    return "[API Error: Rate limited after all retries]"
+
+
+def _extract_json(raw: str) -> Optional[Dict]:
+    """Extract JSON from a response that may contain markdown, thinking, etc."""
+    import re
+    
+    # Try raw parse first
+    try:
+        return json.loads(raw.strip())
+    except:
+        pass
+    
+    # Try to find JSON in markdown code blocks
+    patterns = [
+        r'```json\s*\n(.*?)\n\s*```',
+        r'```\s*\n(.*?)\n\s*```',
+        r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}',  # Nested braces
+    ]
+    
+    for pattern in patterns[:2]:
+        m = re.search(pattern, raw, re.DOTALL)
+        if m:
+            try:
+                return json.loads(m.group(1).strip())
+            except:
+                pass
+    
+    # Try to find the last JSON object in the text
+    # Find all { ... } blocks and try parsing from the last one
+    brace_start = -1
+    depth = 0
+    candidates = []
+    for i, ch in enumerate(raw):
+        if ch == '{':
+            if depth == 0:
+                brace_start = i
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0 and brace_start >= 0:
+                candidates.append(raw[brace_start:i+1])
+    
+    # Try candidates from last to first (last is most likely the final answer)
+    for candidate in reversed(candidates):
+        try:
+            result = json.loads(candidate)
+            if isinstance(result, dict) and len(result) > 1:
+                return result
         except:
             pass
-        print(f"  [Anthropic] HTTP {e.code}: {body}")
-        return f"[API Error: HTTP Error {e.code}: {e.reason}. {body}]"
-    except Exception as e:
-        return f"[API Error: {str(e)[:200]}]"
+    
+    return None
 
 
 def _research_section(ticker: str, company_name: str, section: str, fields: list) -> Dict:
     """Research one section of the template."""
+    import time as _time
+    
     fields_list = "\n".join(f"- {f}" for f in fields)
     
-    system = f"""You are a professional short-selling research analyst conducting deep due diligence on {ticker} ({company_name}). 
-You must research and fill out each field with specific, factual data. Use web search to find current, accurate information.
-Be concise but thorough. Include specific numbers, dates, and facts where possible.
-If information is genuinely unavailable, say "Not found" — never fabricate data.
+    system = f"""You are a short-selling research analyst doing due diligence on {ticker} ({company_name}).
+Research each field with specific, factual data. Use web search for current information.
+Be concise. Include specific numbers, dates, facts.
+If unavailable, say "Not found".
 
-CRITICAL: Respond ONLY with valid JSON. No markdown, no backticks, no preamble. 
-The JSON should be an object where each key is the field name and the value is your research finding as a string."""
+IMPORTANT: Your FINAL response must be ONLY a JSON object. No explanation, no markdown fencing, no preamble.
+Format: {{"Field Name": "finding", "Another Field": "finding"}}"""
 
-    user = f"""Research the following fields for {ticker} ({company_name}) under the "{section}" category:
+    user = f"""Research these fields for {ticker} ({company_name}) — section "{section}":
 
 {fields_list}
 
-Respond with a JSON object mapping each field name to your finding. Example format:
-{{"Field Name": "Your detailed finding here", "Another Field": "Finding"}}"""
+Return ONLY a JSON object with each field name as a key and your finding as the value. Nothing else."""
 
     raw = _call_anthropic(system, user)
     
-    # Parse JSON from response
-    try:
-        # Strip any markdown fencing
-        clean = raw.strip()
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
-            if clean.endswith("```"):
-                clean = clean[:-3]
-            clean = clean.strip()
-        if clean.startswith("json"):
-            clean = clean[4:].strip()
-        result = json.loads(clean)
+    # Parse JSON
+    result = _extract_json(raw)
+    if result:
         return result
-    except json.JSONDecodeError:
-        # Return raw text mapped to first field
-        return {fields[0]: raw, **{f: "[Parse error — see first field]" for f in fields[1:]}}
+    
+    # Last resort: return raw text in first field
+    return {fields[0]: raw, **{f: "[Parse error — see first field]" for f in fields[1:]}}
 
 
 @app.get("/api/research/template")
@@ -314,8 +367,8 @@ async def run_research(ticker: str):
     results = {}
     section_list = list(RESEARCH_TEMPLATE.items())
     
-    for section_name, fields in section_list:
-        print(f"  [Research] Researching: {section_name} ({len(fields)} fields)")
+    for i, (section_name, fields) in enumerate(section_list):
+        print(f"  [Research] [{i+1}/{len(section_list)}] {section_name} ({len(fields)} fields)")
         try:
             section_data = await loop.run_in_executor(
                 None, _research_section, ticker, company_name, section_name, fields
@@ -324,6 +377,11 @@ async def run_research(ticker: str):
         except Exception as e:
             print(f"  [Research] Error in {section_name}: {e}")
             results[section_name] = {f: f"[Error: {str(e)[:100]}]" for f in fields}
+        
+        # Rate limit: wait between sections (Tier 1 = 30K input tokens/min)
+        if i < len(section_list) - 1:
+            import time as _time
+            _time.sleep(15)  # 15s between sections to stay under rate limit
     
     print(f"  [Research] Complete — {len(results)} sections filled")
     
