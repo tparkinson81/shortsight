@@ -416,6 +416,11 @@ def _run_research_background(ticker: str, company_name: str):
     section_list = list(RESEARCH_TEMPLATE.items())
     
     for i, (section_name, fields) in enumerate(section_list):
+        # Check if stopped
+        if not _research_state["running"]:
+            print(f"  [Research] Stopped at section {i+1}/{len(section_list)}")
+            break
+        
         _research_state["current_section"] = section_name
         print(f"  [Research] [{i+1}/{len(section_list)}] {section_name} ({len(fields)} fields)")
         
@@ -458,6 +463,40 @@ def _run_research_background(ticker: str, company_name: str):
         print(f"  [Research] Save error: {e}")
     
     print(f"  [Research] Complete — {len(_research_state['sections'])} sections filled")
+
+
+@app.get("/api/research/stop")
+async def stop_research():
+    """Stop the currently running research."""
+    if not _research_state["running"]:
+        return {"message": "No research running."}
+    
+    _research_state["running"] = False
+    _research_state["current_section"] = None
+    _research_state["completed_at"] = datetime.utcnow().isoformat()
+    
+    # Save partial results
+    ticker = _research_state["ticker"] or "UNKNOWN"
+    output = {
+        "ticker": ticker,
+        "company_name": _research_state["company_name"],
+        "researched_at": _research_state["completed_at"],
+        "partial": True,
+        "sections": _research_state["sections"],
+    }
+    try:
+        os.makedirs(RESEARCH_DIR, exist_ok=True)
+        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+        filename = f"{ticker} - {date_str}.json"
+        with open(os.path.join(RESEARCH_DIR, filename), "w") as f:
+            json.dump(output, f, indent=2)
+        with open(RESEARCH_FILE, "w") as f:
+            json.dump(output, f, indent=2)
+    except:
+        pass
+    
+    print(f"  [Research] Stopped by user — {_research_state['progress']}/{_research_state['total']} sections completed")
+    return {"message": f"Research stopped. {_research_state['progress']}/{_research_state['total']} sections saved."}
 
 
 @app.get("/api/research/start/{ticker}")
