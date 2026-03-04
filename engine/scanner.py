@@ -908,7 +908,7 @@ class ShortScanner:
     
     def run_scan(self, max_deep: int = 75) -> Dict:
         """
-        Full scan: quick screen S&P 500, then deep analysis on candidates.
+        Full scan: scan S&P 500 tickers directly (no quick screen).
         """
         start = datetime.utcnow()
         
@@ -921,23 +921,24 @@ class ShortScanner:
         print(f"\n  Loading S&P 500 universe...")
         universe = self.fmp.get_sp500_constituents()
         if not universe:
-            # Fallback
             universe = ["AAPL","MSFT","GOOGL","AMZN","NVDA","META","TSLA","BRK-B","JPM",
                         "V","UNH","XOM","JNJ","WMT","PG","MA","HD","CVX","MRK","ABBV",
                         "PEP","KO","AVGO","COST","LLY","TMO","MCD","CSCO","ACN","ABT",
                         "DHR","NKE","TXN","PM","UPS","NEE","RTX","LOW","BMY","AMGN"]
         print(f"  Universe: {len(universe)} tickers")
         
-        # Quick screen via batch profiles
-        print(f"\n  Pass 1: Quick screening...")
-        candidates = self._quick_screen(universe, max_deep)
-        print(f"  Found {len(candidates)} candidates for deep analysis\n")
+        # Skip quick screen — go straight to deep scan on a sample
+        # Shuffle so we don't always scan the same tickers
+        import random
+        scan_list = list(universe)
+        random.shuffle(scan_list)
+        scan_list = scan_list[:max_deep]
+        print(f"\n  Scanning {len(scan_list)} tickers (randomized from {len(universe)})...")
         
         # Deep scan
-        print(f"  Pass 2: Deep analysis...")
         results = []
-        for i, ticker in enumerate(candidates):
-            print(f"  [{i+1}/{len(candidates)}] {ticker}")
+        for i, ticker in enumerate(scan_list):
+            print(f"  [{i+1}/{len(scan_list)}] {ticker}")
             r = self.scan_ticker(ticker)
             if r:
                 results.append(r)
@@ -955,7 +956,7 @@ class ShortScanner:
         output = {
             "candidates": results,
             "universe_size": len(universe),
-            "screened": len(candidates),
+            "screened": len(scan_list),
             "found": len(results),
             "scan_seconds": round(elapsed, 1),
             "scanned_at": datetime.utcnow().isoformat(),
