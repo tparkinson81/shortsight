@@ -363,7 +363,7 @@ function triggerScan(){var b=document.getElementById('scanBtn');b.textContent='S
 function renderScan(scan){
   rawCandidates=scan.candidates||[];
   document.getElementById('sU').textContent=scan.universe_size||'\u2014';
-  if(scan.scanned_at){var dt=new Date(scan.scanned_at+'Z');document.getElementById('sT').textContent=dt.toLocaleDateString()+' '+dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});document.getElementById('scanMeta').textContent=scan.universe_size+' screened \u2022 '+(scan.scan_seconds||'?')+'s \u2022 '+rawCandidates.length+' returned'}
+  if(scan.scanned_at){var dt=new Date(scan.scanned_at+'Z');var days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];var dayStr=days[dt.getDay()];var dateStr=dt.toLocaleDateString()+' '+dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});document.getElementById('sT').innerHTML=dayStr+' '+dateStr;var durMin=Math.round((scan.scan_seconds||0)/60);document.getElementById('scanMeta').textContent=scan.universe_size+' screened \u2022 '+(durMin>0?durMin+'m ':'')+((scan.scan_seconds||0)%60)+'s \u2022 '+rawCandidates.length+' candidates \u2022 Next: weekdays 8:35 AM ET'}
   var filtered=rawCandidates.length?filterCandidates(rawCandidates):[];
   renderFilteredScan(filtered);
 }
@@ -461,6 +461,8 @@ function loadSavedResearch(filename){
         if(typeof sData==='object'&&sData.type==='error'){
           val='[API Error: '+((sData.error||{}).message||'Unknown')+']';
         }
+        // Strip citation tags
+        if(typeof val==='string') val=val.replace(/<cite[^>]*>/g,'').replace(/<\/cite>/g,'');
         html+='<div class="res-field"><div class="res-label">'+E(f)+'</div><div class="res-value">'+E(val)+'</div></div>';
       });
       html+='</div></div>';
@@ -619,7 +621,10 @@ function fillResearchSections(sections){
       var fId='res-f-'+sn.replace(/[^a-zA-Z0-9]/g,'_')+'-'+f.replace(/[^a-zA-Z0-9]/g,'_');
       var el=document.getElementById(fId);
       if(el && el.classList.contains('res-loading')){
-        el.textContent=sData[f]||'Not found';
+        var val=sData[f]||'Not found';
+        // Strip citation tags from web search
+        if(typeof val==='string') val=val.replace(/<cite[^>]*>/g,'').replace(/<\/cite>/g,'');
+        el.textContent=val;
         el.classList.remove('res-loading');
       }
     });
