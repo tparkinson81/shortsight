@@ -217,6 +217,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);min-
 <input class="inp" id="ddI" placeholder="Enter ticker (e.g. TSLA)" style="max-width:280px" onkeydown="if(event.key==='Enter')runDD()">
 <button class="btn bp bs" onclick="runDD()" id="ddBtn">Quick Scan</button>
 <button class="btn bo bs" onclick="runResearch()" id="resBtn">Deep Research</button>
+<button class="btn bo bs" onclick="stopResearch()" id="stopBtn" style="display:none;border-color:var(--red);color:var(--red)">Stop</button>
 </div>
 <div style="font-size:11px;color:var(--text3);margin-bottom:16px">Quick Scan runs the 10-dimension scorer. Deep Research fills a 15-section short thesis template via AI with live web data.</div>
 <div id="resRepo" style="margin-bottom:20px"></div>
@@ -527,6 +528,7 @@ function runResearch(){
   toast('Deep Research started on '+t);
   document.getElementById('resBtn').disabled=true;
   document.getElementById('resBtn').textContent='Researching...';
+  document.getElementById('stopBtn').style.display='';
   
   // Start background research
   api('GET','/api/research/start/'+t).then(function(d){
@@ -547,6 +549,18 @@ function runResearch(){
     document.getElementById('resBtn').disabled=false;
     document.getElementById('resBtn').textContent='Deep Research';
   });
+}
+
+function stopResearch(){
+  api('GET','/api/research/stop').then(function(d){
+    toast(d.message||'Research stopped');
+    document.getElementById('stopBtn').style.display='none';
+    document.getElementById('resBtn').disabled=false;
+    document.getElementById('resBtn').textContent='Deep Research';
+    document.getElementById('resPfill').style.background='var(--amber)';
+    document.getElementById('resPtext').textContent='Stopped — partial results saved';
+    loadResearchRepo();
+  }).catch(function(){});
 }
 
 function pollResearch(ticker, totalFields){
@@ -591,6 +605,7 @@ function pollResearch(ticker, totalFields){
           }
           document.getElementById('resBtn').disabled=false;
           document.getElementById('resBtn').textContent='Deep Research';
+          document.getElementById('stopBtn').style.display='none';
         });
       }
     }).catch(function(){});
