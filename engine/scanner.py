@@ -978,14 +978,58 @@ class ShortScanner:
         return output
     
     def _quick_screen(self, universe: List[str], max_candidates: int = 75) -> List[str]:
-        """Quick screen using individual profiles to find weak stocks."""
+        """Quick screen — tries FMP screener first (1 call), falls back to individual profiles."""
+        universe_set = set(universe)
         candidates = []
         screened = 0
         
-        for ticker in universe:
+        # Strategy 1: Use FMP screener (single API call)
+        print(f"  [Screen] Trying stock screener endpoint...")
+        screener_data = self.fmp.get_stock_screener(market_cap_min=500_000_000, limit=1000)
+        
+        if screener_data:
+            print(f"  [Screen] Screener returned {len(screener_data)} stocks")
+            for p in screener_data:
+                sym = p.get("symbol", "")
+                if sym not in universe_set:
+                    continue
+                
+                screened += 1
+                pe = p.get("pe") or 0
+                changes = p.get("changes") or p.get("changesPercentage") or 0
+                mktCap = p.get("mktCap") or p.get("marketCap") or 0
+                price = p.get("price") or p.get("lastPrice") or 0
+                
+                if not price or mktCap < 500_000_000:
+                    continue
+                
+                if pe > 30 or pe < 0:
+                    candidates.append(sym)
+                elif changes < -0.5:
+                    candidates.append(sym)
+                elif pe > 15 and changes < 0:
+                    candidates.append(sym)
+                elif pe == 0:
+                    candidates.append(sym)
+            
+            print(f"  [Screen] Screener: {screened} S&P matches, {len(candidates)} candidates")
+            if candidates:
+                return candidates[:max_candidates]
+        
+        # Strategy 2: Individual profile calls (slower but reliable)
+        print(f"  [Screen] Screener didn't work — falling back to individual profiles...")
+        candidates = []
+        screened = 0
+        no_data = 0
+        
+        for i, ticker in enumerate(universe):
             try:
                 p = self.fmp.get_profile(ticker)
-                if not p or not p.get("price"):
+                
+                if not p.get("price"):
+                    no_data += 1
+                    if no_data <= 3:
+                        print(f"  [Screen] {ticker}: no price — keys: {list(p.keys())}")
                     continue
                 
                 screened += 1
@@ -993,10 +1037,12 @@ class ShortScanner:
                 changes = p.get("changes") or p.get("changesPercentage") or 0
                 mktCap = p.get("mktCap") or 0
                 
+                if screened <= 2:
+                    print(f"  [Screen] {ticker}: pe={pe}, changes={changes}, mktCap={mktCap}")
+                
                 if mktCap < 500_000_000:
                     continue
                 
-                # Flag for deeper analysis
                 if pe > 30 or pe < 0:
                     candidates.append(ticker)
                 elif changes < -0.5:
@@ -1009,13 +1055,15 @@ class ShortScanner:
             except Exception as e:
                 print(f"  [Screen] Error on {ticker}: {e}")
             
-            # Brief pause to avoid hammering FMP
-            time.sleep(0.15)
+            time.sleep(0.25)
+            
+            if (i + 1) % 100 == 0:
+                print(f"  [Screen] Progress: {i+1}/{len(universe)}, {screened} with data, {len(candidates)} candidates")
             
             if len(candidates) >= max_candidates:
                 break
         
-        print(f"  [Screen] Screened {screened} profiles, {len(candidates)} passed filter")
+        print(f"  [Screen] Done: {screened} screened, {no_data} no data, {len(candidates)} candidates")
         return candidates[:max_candidates]
     
     def _assess_risks(self, c: ShortCandidate) -> List[str]:
