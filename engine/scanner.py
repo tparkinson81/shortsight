@@ -988,14 +988,14 @@ class ShortScanner:
             try:
                 profiles = self.fmp.get_batch_profiles(batch)
                 if not profiles:
-                    print(f"  [Screen] Batch returned empty for {batch[:3]}...")
-                    # If batch profiles fail, add tickers anyway
-                    candidates.extend(batch)
-                    screened += len(batch)
-                    time.sleep(0.3)
-                    if len(candidates) >= max_candidates:
-                        break
+                    print(f"  [Screen] Batch {i//batch_size+1} returned empty")
                     continue
+                
+                if i == 0:
+                    # Log first batch for debugging
+                    sample = profiles[0] if profiles else {}
+                    print(f"  [Screen] Sample profile keys: {list(sample.keys())}")
+                    print(f"  [Screen] Sample: {sample.get('symbol')} pe={sample.get('pe')} changes={sample.get('changes')} mktCap={sample.get('mktCap')}")
                 
                 for p in profiles:
                     sym = p.get("symbol", "")
@@ -1003,13 +1003,13 @@ class ShortScanner:
                         continue
                     screened += 1
                     pe = p.get("pe") or 0
-                    changes = p.get("changes") or p.get("changesPercentage") or 0
-                    mktCap = p.get("mktCap") or p.get("marketCap") or 0
+                    changes = p.get("changes") or 0
+                    mktCap = p.get("mktCap") or 0
                     
                     if mktCap < 500_000_000:
                         continue
                     
-                    # Flag for deeper analysis — widened criteria
+                    # Flag for deeper analysis
                     if pe > 30 or pe < 0:
                         candidates.append(sym)
                     elif changes < -0.5:
@@ -1017,24 +1017,16 @@ class ShortScanner:
                     elif pe > 15 and changes < 0:
                         candidates.append(sym)
                     elif pe == 0:
-                        # pe=0 could mean data missing — include anyway
                         candidates.append(sym)
                 
                 time.sleep(0.3)
             except Exception as e:
                 print(f"  [Screen] Batch error: {e}")
-                # On error, add the batch tickers anyway so we still scan something
-                candidates.extend(batch)
             
             if len(candidates) >= max_candidates * 2:
                 break
         
         print(f"  [Screen] Screened {screened} profiles, {len(candidates)} passed filter")
-        
-        # If quick screen found nothing, just take first max_candidates from universe
-        if not candidates:
-            print(f"  [Screen] Filter produced 0 results — bypassing with top {max_candidates} tickers")
-            candidates = universe[:max_candidates]
         
         # Deduplicate
         seen = set()
