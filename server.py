@@ -633,6 +633,12 @@ async def quicktest():
     
     # Batch profile check — this is what _quick_screen uses
     try:
+        # Raw FMP response first (unparsed)
+        raw_profiles = bg.scanner.fmp._get("profile", {"symbol": "TSLA,AAPL"})
+        if isinstance(raw_profiles, list) and raw_profiles:
+            fmp_test["raw_profile_keys"] = list(raw_profiles[0].keys())
+            fmp_test["raw_profile_sample"] = {k: raw_profiles[0].get(k) for k in ["symbol","pe","changes","mktCap","price","changesPercentage","marketCap","change","changePercentage","companyName"] if raw_profiles[0].get(k) is not None}
+        # Parsed batch profiles
         batch_raw = bg.scanner.fmp.get_batch_profiles(["TSLA", "AAPL", "NVDA"])
         if isinstance(batch_raw, list) and batch_raw:
             fmp_test["batch_profile_count"] = len(batch_raw)
