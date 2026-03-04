@@ -455,64 +455,89 @@ function runResearch(){
   c.innerHTML=html;
   
   dbg('Deep Research: '+t+' ('+sKeys.length+' sections, '+totalFields+' fields)');
-  toast('Deep Research started on '+t+' — this takes 3-5 minutes');
+  toast('Deep Research started on '+t);
   document.getElementById('resBtn').disabled=true;
   document.getElementById('resBtn').textContent='Researching...';
   
-  // Call API
-  api('GET','/api/research/'+t).then(function(d){
-    if(d.error){
+  // Start background research
+  api('GET','/api/research/start/'+t).then(function(d){
+    if(d.error && !d.progress){
       document.getElementById('resPtext').textContent='Error: '+d.error;
-      document.getElementById('resPfill').style.width='100%';
       document.getElementById('resPfill').style.background='var(--red)';
-      dbg('Research error: '+d.error,true);
-      toast(d.error);
+      document.getElementById('resPfill').style.width='100%';
       document.getElementById('resBtn').disabled=false;
       document.getElementById('resBtn').textContent='Deep Research';
       return;
     }
-    
-    // Fill in all sections
-    window._lastResearch=d;
-    var sections=d.sections||{};
-    var filled=0;
-    Object.keys(sections).forEach(function(sn){
-      var sData=sections[sn];
-      var secId='res-sec-'+sn.replace(/[^a-zA-Z0-9]/g,'_');
-      Object.keys(sData).forEach(function(f){
-        var fId='res-f-'+sn.replace(/[^a-zA-Z0-9]/g,'_')+'-'+f.replace(/[^a-zA-Z0-9]/g,'_');
-        var el=document.getElementById(fId);
-        if(el){
-          el.textContent=sData[f]||'Not found';
-          el.classList.remove('res-loading');
-          filled++;
-        }
-      });
-    });
-    
-    // Mark any remaining as not found
-    document.querySelectorAll('.res-loading').forEach(function(el){
-      el.textContent='Not researched';
-      el.classList.remove('res-loading');
-    });
-    
-    document.getElementById('resPfill').style.width='100%';
-    document.getElementById('resPfill').style.background='var(--green)';
-    document.getElementById('resPtext').textContent='Complete — '+filled+'/'+totalFields+' fields filled';
-    document.getElementById('exportBtn').disabled=false;
-    document.getElementById('resBtn').disabled=false;
-    document.getElementById('resBtn').textContent='Deep Research';
-    dbg('Research complete: '+filled+' fields filled');
-    toast('Research complete for '+t);
+    // Start polling
+    pollResearch(t, totalFields);
   }).catch(function(e){
     document.getElementById('resPtext').textContent='Error: '+e.message;
     document.getElementById('resPfill').style.background='var(--red)';
     document.getElementById('resPfill').style.width='100%';
-    dbg('Research error: '+e.message,true);
     document.getElementById('resBtn').disabled=false;
     document.getElementById('resBtn').textContent='Deep Research';
-    // Mark loading fields
-    document.querySelectorAll('.res-loading').forEach(function(el){el.textContent='Error';el.classList.remove('res-loading')});
+  });
+}
+
+function pollResearch(ticker, totalFields){
+  var pollTimer=setInterval(function(){
+    api('GET','/api/research/status').then(function(s){
+      var pct=Math.round((s.progress/s.total)*100);
+      document.getElementById('resPfill').style.width=pct+'%';
+      var statusText='Researching: '+s.progress+'/'+s.total+' sections';
+      if(s.current_section) statusText+=' — '+s.current_section;
+      document.getElementById('resPtext').textContent=statusText;
+      
+      // Fill in completed sections as they come in
+      if(s.sections_done && s.sections_done.length>0){
+        // Fetch partial results
+        api('GET','/api/research/results').then(function(r){
+          var sections=r.sections||r.partial_sections||{};
+          fillResearchSections(sections);
+        });
+      }
+      
+      if(!s.running){
+        clearInterval(pollTimer);
+        // Fetch final results
+        api('GET','/api/research/results').then(function(d){
+          if(d.error){
+            document.getElementById('resPtext').textContent='Error: '+d.error;
+            document.getElementById('resPfill').style.background='var(--red)';
+          } else {
+            window._lastResearch=d;
+            fillResearchSections(d.sections||{});
+            document.querySelectorAll('.res-loading').forEach(function(el){
+              el.textContent='Not researched';
+              el.classList.remove('res-loading');
+            });
+            var filled=document.querySelectorAll('.res-value:not(.res-loading)').length;
+            document.getElementById('resPfill').style.width='100%';
+            document.getElementById('resPfill').style.background='var(--green)';
+            document.getElementById('resPtext').textContent='Complete — '+filled+'/'+totalFields+' fields filled';
+            document.getElementById('exportBtn').disabled=false;
+            toast('Research complete for '+ticker);
+          }
+          document.getElementById('resBtn').disabled=false;
+          document.getElementById('resBtn').textContent='Deep Research';
+        });
+      }
+    }).catch(function(){});
+  }, 5000); // Poll every 5 seconds
+}
+
+function fillResearchSections(sections){
+  Object.keys(sections).forEach(function(sn){
+    var sData=sections[sn];
+    Object.keys(sData).forEach(function(f){
+      var fId='res-f-'+sn.replace(/[^a-zA-Z0-9]/g,'_')+'-'+f.replace(/[^a-zA-Z0-9]/g,'_');
+      var el=document.getElementById(fId);
+      if(el && el.classList.contains('res-loading')){
+        el.textContent=sData[f]||'Not found';
+        el.classList.remove('res-loading');
+      }
+    });
   });
 }
 
