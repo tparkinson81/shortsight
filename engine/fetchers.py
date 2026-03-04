@@ -108,11 +108,23 @@ class FMPFetcher:
         return {"companyName": ticker}
     
     def get_batch_profiles(self, tickers: List[str]) -> List[Dict]:
-        """Get profiles for multiple tickers in one call."""
+        """Get profiles for multiple tickers in one call, parsed consistently."""
         tickers_str = ",".join(tickers)
         data = self._get("profile", {"symbol": tickers_str})
         if isinstance(data, list):
-            return data
+            results = []
+            for p in data:
+                results.append({
+                    "symbol": p.get("symbol", ""),
+                    "companyName": p.get("companyName", ""),
+                    "sector": p.get("sector", ""),
+                    "mktCap": p.get("mktCap") or p.get("marketCap") or 0,
+                    "price": p.get("price", 0),
+                    "pe": p.get("pe") or p.get("peRatio") or 0,
+                    "changes": p.get("changes") or p.get("change") or 0,
+                    "changesPercentage": p.get("changesPercentage") or p.get("changePercentage") or 0,
+                })
+            return results
         return []
     
     def get_earnings_surprises(self, ticker: str) -> List[Dict]:
@@ -226,16 +238,22 @@ class FMPFetcher:
     
     def get_key_metrics(self, ticker: str) -> Dict:
         data = self._get("key-metrics", {"symbol": ticker, "period": "ttm"})
+        # TTM might be empty, fall back to no period
+        if not (isinstance(data, list) and data):
+            data = self._get("key-metrics", {"symbol": ticker})
         if isinstance(data, list) and data:
             m = data[0]
+            # Stable API fields differ from legacy — map what's available
             return {
-                "peRatio": round(m.get("peRatio", 0) or 0, 2),
-                "pbRatio": round(m.get("pbRatio", 0) or 0, 2),
-                "priceToSalesRatio": round(m.get("priceToSalesRatio", 0) or 0, 2),
-                "evToEbitda": round(m.get("enterpriseValueOverEBITDA", 0) or 0, 2),
-                "pegRatio": round(m.get("pegRatio", 0) or 0, 2),
-                "debtToEquity": round(m.get("debtToEquity", 0) or 0, 2),
-                "roe": round((m.get("roe", 0) or 0) * 100, 2),
+                "evToSales": round(m.get("evToSales", 0) or 0, 2),
+                "evToEbitda": round(m.get("evToEBITDA", 0) or 0, 2),
+                "evToFreeCashFlow": round(m.get("evToFreeCashFlow", 0) or 0, 2),
+                "evToOperatingCashFlow": round(m.get("evToOperatingCashFlow", 0) or 0, 2),
+                "netDebtToEBITDA": round(m.get("netDebtToEBITDA", 0) or 0, 2),
+                "currentRatio": round(m.get("currentRatio", 0) or 0, 2),
+                "incomeQuality": round(m.get("incomeQuality", 0) or 0, 2),
+                "grahamNumber": round(m.get("grahamNumber", 0) or 0, 2),
+                "marketCap": m.get("marketCap", 0) or 0,
             }
         return {}
     
