@@ -150,6 +150,13 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);min-
 .res-pfill{height:100%;background:var(--red);border-radius:2px;transition:width 0.5s ease}
 .res-ptext{font-size:11px;color:var(--text3);font-family:'JetBrains Mono',monospace;min-width:120px;text-align:right}
 @media(max-width:640px){.res-label{width:140px;min-width:140px;font-size:12px}.res-value{font-size:12px}}
+/* Research repository */
+.repo-wrap{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.repo-label{font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.5px}
+.repo-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;background:var(--card2);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;cursor:pointer;transition:all 0.15s;color:var(--text2)}
+.repo-pill:hover{background:var(--raised);border-color:var(--red);color:var(--text)}
+.repo-pill .repo-tk{font-weight:700;color:var(--text)}
+.repo-pill .repo-dt{color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:10px}
 </style>
 </head>
 <body>
@@ -211,7 +218,8 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);min-
 <button class="btn bp bs" onclick="runDD()" id="ddBtn">Quick Scan</button>
 <button class="btn bo bs" onclick="runResearch()" id="resBtn">Deep Research</button>
 </div>
-<div style="font-size:11px;color:var(--text3);margin-bottom:20px">Quick Scan runs the 10-dimension scorer. Deep Research fills a 15-section short thesis template via AI with live web data.</div>
+<div style="font-size:11px;color:var(--text3);margin-bottom:16px">Quick Scan runs the 10-dimension scorer. Deep Research fills a 15-section short thesis template via AI with live web data.</div>
+<div id="resRepo" style="margin-bottom:20px"></div>
 <div id="ddR"><div class="empty"><p>Enter a ticker to analyze.</p></div></div>
 </div>
 <!-- SETTINGS TAB -->
@@ -402,6 +410,67 @@ function loadNews(){var c=document.getElementById('nfeed');c.innerHTML='<div cla
 function runDD(){var t=document.getElementById('ddI').value.trim().toUpperCase();if(!t){toast('Enter a ticker');return}ddTk(t)}
 function ddTk(t){document.querySelectorAll('.nav-tab').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.tc').forEach(function(x){x.classList.remove('active')});document.querySelector('[data-tab="deepdive"]').classList.add('active');document.getElementById('tab-deepdive').classList.add('active');document.getElementById('ddI').value=t;var c=document.getElementById('ddR');c.innerHTML='<div class="empty"><p>Analyzing '+E(t)+'...<br><span style="font-size:11px;color:var(--text3)">This takes 15\u201330 seconds</span></p></div>';dbg('Deep dive: '+t);api('GET','/api/scan/'+t).then(function(d){if(d.error){c.innerHTML='<div class="empty"><p>'+E(d.error)+'</p></div>';dbg('DD: '+d.error);return}dbg('DD complete: '+t+' \u2014 '+d.conviction);c.innerHTML=rCard(recalcCandidate(d))}).catch(function(e){c.innerHTML='<div class="empty"><p>Error: '+E(e.message)+'</p></div>';dbg('DD error: '+e.message,true)})}
 
+// ── RESEARCH REPOSITORY ──
+function loadResearchRepo(){
+  api('GET','/api/research/repository').then(function(d){
+    var repo=document.getElementById('resRepo');
+    if(!d.reports||d.reports.length===0){
+      repo.innerHTML='';
+      return;
+    }
+    var html='<div class="repo-wrap"><span class="repo-label">Saved Reports:</span>';
+    d.reports.forEach(function(r){
+      html+='<div class="repo-pill" onclick="loadSavedResearch(\''+E(r.filename)+'\')">';
+      html+='<span class="repo-tk">'+E(r.ticker)+'</span>';
+      html+='<span class="repo-dt">'+E(r.date)+'</span></div>';
+    });
+    html+='</div>';
+    repo.innerHTML=html;
+  }).catch(function(){});
+}
+
+function loadSavedResearch(filename){
+  var c=document.getElementById('ddR');
+  c.innerHTML='<div class="empty"><p>Loading report...</p></div>';
+  
+  api('GET','/api/research/load/'+encodeURIComponent(filename)).then(function(d){
+    if(d.error){
+      c.innerHTML='<div class="empty"><p>'+E(d.error)+'</p></div>';
+      return;
+    }
+    // Build the report view
+    window._lastResearch=d;
+    var t=d.ticker||'';
+    var sKeys=Object.keys(RESEARCH_SECTIONS);
+    var totalFields=0;
+    sKeys.forEach(function(k){totalFields+=RESEARCH_SECTIONS[k].length});
+    
+    var html='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="stitle">Deep Research: '+E(t)+'</div><div style="display:flex;gap:8px"><span style="font-size:11px;color:var(--text3);line-height:32px">'+E(d.researched_at?d.researched_at.slice(0,10):'')+'</span><button class="btn bo bs" onclick="exportResearch()" id="exportBtn">Export JSON</button></div></div>';
+    
+    sKeys.forEach(function(sn){
+      var fields=RESEARCH_SECTIONS[sn];
+      var icon=SECTION_ICONS[sn]||'\u{1F4CB}';
+      html+='<div class="res-section">';
+      html+='<div class="res-header" onclick="toggleResSection(this)"><div class="res-htitle">'+icon+' '+E(sn)+' <span class="res-hcount">'+fields.length+' fields</span></div><span class="res-arrow">\u25BC</span></div>';
+      html+='<div class="res-body">';
+      var sData=(d.sections||{})[sn]||{};
+      fields.forEach(function(f){
+        var val=sData[f]||'Not researched';
+        // Handle error objects from API
+        if(typeof sData==='object'&&sData.type==='error'){
+          val='[API Error: '+((sData.error||{}).message||'Unknown')+']';
+        }
+        html+='<div class="res-field"><div class="res-label">'+E(f)+'</div><div class="res-value">'+E(val)+'</div></div>';
+      });
+      html+='</div></div>';
+    });
+    c.innerHTML=html;
+    document.getElementById('ddI').value=t;
+  }).catch(function(e){
+    c.innerHTML='<div class="empty"><p>Error loading report: '+E(e.message)+'</p></div>';
+  });
+}
+
 // ── DEEP RESEARCH ──
 var RESEARCH_SECTIONS = {
   "Business":["Company Name","Ticker","Description","Industry","Market Capitalization","Fully Diluted Shares","Short Interest","Total Debt","EBITDA","Adj. Free Cash Flow","Origin of Idea"],
@@ -518,6 +587,7 @@ function pollResearch(ticker, totalFields){
             document.getElementById('resPtext').textContent='Complete — '+filled+'/'+totalFields+' fields filled';
             document.getElementById('exportBtn').disabled=false;
             toast('Research complete for '+ticker);
+            loadResearchRepo();
           }
           document.getElementById('resBtn').disabled=false;
           document.getElementById('resBtn').textContent='Deep Research';
@@ -572,7 +642,7 @@ loadSettings();renderDimToggles();
 document.getElementById('minScoreSlider').value=filterSettings.minScore;document.getElementById('minScoreVal').textContent=filterSettings.minScore;
 document.getElementById('minCritSlider').value=filterSettings.minCrit;document.getElementById('minCritVal').textContent=filterSettings.minCrit;
 document.getElementById('minElevSlider').value=filterSettings.minElev;document.getElementById('minElevVal').textContent=filterSettings.minElev;
-fetchDash();setInterval(fetchDash,30000);dbg('ShortSight initialized');
+fetchDash();setInterval(fetchDash,30000);loadResearchRepo();dbg('ShortSight initialized');
 </script>
 </body>
 </html>
