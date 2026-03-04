@@ -59,6 +59,10 @@ class BackgroundScanner:
         self.last_scan_time: Optional[str] = None
         self.scan_count = 0
         self.errors: List[str] = []
+        self.scan_progress = 0
+        self.scan_total = 0
+        self.scan_current = None
+        self.scan_found = 0
     
     def initialize(self):
         if not NEWS_KEY or not FMP_KEY:
@@ -84,15 +88,29 @@ class BackgroundScanner:
         
         try:
             self.is_running = True
+            self.scan_progress = 0
+            self.scan_total = 0
+            self.scan_current = None
+            self.scan_found = 0
+            # Pass self as progress callback
+            self.scanner._progress_cb = self._on_progress
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, self.scanner.run_scan)
             self.last_scan_time = datetime.utcnow().isoformat()
             self.scan_count += 1
             self.is_running = False
+            self.scan_current = None
         except Exception as e:
             self.is_running = False
+            self.scan_current = None
             self.errors.append(f"Scan error: {str(e)}")
             print(f"[Scanner] Error: {e}")
+    
+    def _on_progress(self, current: int, total: int, ticker: str, found: int):
+        self.scan_progress = current
+        self.scan_total = total
+        self.scan_current = ticker
+        self.scan_found = found
     
     async def scan_ticker(self, ticker: str) -> Optional[Dict]:
         if not self.scanner:
@@ -191,6 +209,10 @@ async def health():
         "status": "ok",
         "scanner_ready": bg.scanner is not None,
         "is_scanning": bg.is_running,
+        "scan_progress": bg.scan_progress,
+        "scan_total": bg.scan_total,
+        "scan_current": bg.scan_current,
+        "scan_found": bg.scan_found,
         "last_scan": bg.last_scan_time,
         "scan_count": bg.scan_count,
         "errors": bg.errors[-3:] if bg.errors else [],
