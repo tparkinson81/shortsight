@@ -85,9 +85,34 @@ class FMPFetcher:
             req = urllib.request.Request(url, headers={"User-Agent": "ShortSight/1.0"})
             with urllib.request.urlopen(req, timeout=15) as resp:
                 return json.loads(resp.read().decode())
+        except urllib.request.HTTPError as e:
+            if e.code == 429:
+                print(f"[FMP] RATE LIMITED on {endpoint} — waiting 10s")
+                import time; time.sleep(10)
+                # Retry once
+                try:
+                    req2 = urllib.request.Request(url, headers={"User-Agent": "ShortSight/1.0"})
+                    with urllib.request.urlopen(req2, timeout=15) as resp2:
+                        return json.loads(resp2.read().decode())
+                except:
+                    pass
+            print(f"[FMP] HTTP {e.code} on {endpoint}")
+            return []
         except Exception as e:
             print(f"[FMP] Error {endpoint}: {e}")
             return []
+    
+    def get_stock_screener(self, market_cap_min: int = 500000000, limit: int = 500) -> List[Dict]:
+        """Use FMP screener to get bulk stock data in one call."""
+        data = self._get("stock-screener", {
+            "marketCapMoreThan": str(market_cap_min),
+            "isActivelyTrading": "true",
+            "limit": str(limit),
+            "exchange": "NYSE,NASDAQ"
+        })
+        if isinstance(data, list):
+            return data
+        return []
     
     def get_profile(self, ticker: str) -> Dict:
         data = self._get("profile", {"symbol": ticker})
