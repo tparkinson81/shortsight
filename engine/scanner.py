@@ -934,6 +934,11 @@ class ShortScanner:
         results = []
         for i, ticker in enumerate(universe):
             print(f"  [{i+1}/{len(universe)}] {ticker}")
+            
+            # Report progress via callback
+            if hasattr(self, '_progress_cb') and self._progress_cb:
+                self._progress_cb(i + 1, len(universe), ticker, len(results))
+            
             r = self.scan_ticker(ticker)
             if r:
                 results.append(r)
