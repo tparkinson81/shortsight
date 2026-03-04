@@ -161,7 +161,17 @@ async def trigger_scan():
         return {"message": "Scan already in progress. Please wait."}
     
     asyncio.create_task(bg.run_scan())
-    return {"message": "Scan started. Screening S&P 500 — this may take a few minutes."}
+    return {"message": "Scan started. Scanning all S&P 500 — this will take 15-20 minutes."}
+
+
+@app.get("/api/scan/start")
+async def trigger_scan_get():
+    """Trigger a scan via GET (so you can just visit this URL in your browser)."""
+    if bg.is_running:
+        return {"message": "Scan already in progress. Please wait.", "is_scanning": True}
+    
+    asyncio.create_task(bg.run_scan())
+    return {"message": "Scan started! Scanning all S&P 500. Check /api/health for progress. This takes 15-20 minutes."}
 
 
 @app.get("/api/scan/{ticker}")
@@ -342,16 +352,87 @@ async def get_research_template():
     return {"sections": RESEARCH_TEMPLATE}
 
 
-@app.get("/api/research/{ticker}")
-async def run_research(ticker: str):
-    """Run deep research on a ticker, filling out all template sections."""
+# Background research state
+_research_state = {
+    "running": False,
+    "ticker": None,
+    "company_name": None,
+    "progress": 0,
+    "total": 15,
+    "current_section": None,
+    "sections": {},
+    "error": None,
+    "completed_at": None,
+}
+
+RESEARCH_FILE = os.path.join(os.path.dirname(__file__), "data", "research_results.json")
+
+
+def _run_research_background(ticker: str, company_name: str):
+    """Run research in background thread."""
+    import time as _time
+    
+    _research_state["running"] = True
+    _research_state["ticker"] = ticker
+    _research_state["company_name"] = company_name
+    _research_state["progress"] = 0
+    _research_state["total"] = len(RESEARCH_TEMPLATE)
+    _research_state["sections"] = {}
+    _research_state["error"] = None
+    _research_state["completed_at"] = None
+    
+    section_list = list(RESEARCH_TEMPLATE.items())
+    
+    for i, (section_name, fields) in enumerate(section_list):
+        _research_state["current_section"] = section_name
+        print(f"  [Research] [{i+1}/{len(section_list)}] {section_name} ({len(fields)} fields)")
+        
+        try:
+            section_data = _research_section(ticker, company_name, section_name, fields)
+            _research_state["sections"][section_name] = section_data
+        except Exception as e:
+            print(f"  [Research] Error in {section_name}: {e}")
+            _research_state["sections"][section_name] = {f: f"[Error: {str(e)[:100]}]" for f in fields}
+        
+        _research_state["progress"] = i + 1
+        
+        # Rate limit pause between sections
+        if i < len(section_list) - 1:
+            _time.sleep(15)
+    
+    _research_state["current_section"] = None
+    _research_state["running"] = False
+    _research_state["completed_at"] = datetime.utcnow().isoformat()
+    
+    # Save results
+    output = {
+        "ticker": ticker,
+        "company_name": company_name,
+        "researched_at": _research_state["completed_at"],
+        "sections": _research_state["sections"],
+    }
+    try:
+        os.makedirs(os.path.dirname(RESEARCH_FILE), exist_ok=True)
+        with open(RESEARCH_FILE, "w") as f:
+            json.dump(output, f, indent=2)
+    except Exception as e:
+        print(f"  [Research] Save error: {e}")
+    
+    print(f"  [Research] Complete — {len(_research_state['sections'])} sections filled")
+
+
+@app.get("/api/research/start/{ticker}")
+async def start_research(ticker: str):
+    """Start deep research as a background job."""
     ticker = ticker.upper().strip()
     
-    # Check for Anthropic API key
+    if _research_state["running"]:
+        return {"error": "Research already in progress", "ticker": _research_state["ticker"], "progress": _research_state["progress"], "total": _research_state["total"]}
+    
     if not os.getenv("ANTHROPIC_API_KEY"):
         return {"error": "ANTHROPIC_API_KEY not set. Add it to Railway environment variables."}
     
-    # Get company name from FMP
+    # Get company name
     company_name = ticker
     if bg.scanner:
         try:
@@ -360,37 +441,61 @@ async def run_research(ticker: str):
         except:
             pass
     
-    print(f"\n  [Research] Starting deep research on {ticker} ({company_name})...")
-    
-    # Research each section
+    # Run in background thread
     loop = asyncio.get_event_loop()
-    results = {}
-    section_list = list(RESEARCH_TEMPLATE.items())
+    loop.run_in_executor(None, _run_research_background, ticker, company_name)
     
-    for i, (section_name, fields) in enumerate(section_list):
-        print(f"  [Research] [{i+1}/{len(section_list)}] {section_name} ({len(fields)} fields)")
-        try:
-            section_data = await loop.run_in_executor(
-                None, _research_section, ticker, company_name, section_name, fields
-            )
-            results[section_name] = section_data
-        except Exception as e:
-            print(f"  [Research] Error in {section_name}: {e}")
-            results[section_name] = {f: f"[Error: {str(e)[:100]}]" for f in fields}
-        
-        # Rate limit: wait between sections (Tier 1 = 30K input tokens/min)
-        if i < len(section_list) - 1:
-            import time as _time
-            _time.sleep(15)  # 15s between sections to stay under rate limit
-    
-    print(f"  [Research] Complete — {len(results)} sections filled")
-    
+    return {"message": f"Research started on {ticker} ({company_name}). Poll /api/research/status for progress."}
+
+
+@app.get("/api/research/status")
+async def research_status():
+    """Check research progress."""
     return {
-        "ticker": ticker,
-        "company_name": company_name,
-        "researched_at": datetime.utcnow().isoformat(),
-        "sections": results
+        "running": _research_state["running"],
+        "ticker": _research_state["ticker"],
+        "company_name": _research_state["company_name"],
+        "progress": _research_state["progress"],
+        "total": _research_state["total"],
+        "current_section": _research_state["current_section"],
+        "completed_at": _research_state["completed_at"],
+        "sections_done": list(_research_state["sections"].keys()),
     }
+
+
+@app.get("/api/research/results")
+async def research_results():
+    """Get completed research results."""
+    if _research_state["running"]:
+        return {
+            "status": "running",
+            "progress": _research_state["progress"],
+            "total": _research_state["total"],
+            "current_section": _research_state["current_section"],
+            "partial_sections": _research_state["sections"],
+        }
+    
+    if _research_state["sections"]:
+        return {
+            "ticker": _research_state["ticker"],
+            "company_name": _research_state["company_name"],
+            "researched_at": _research_state["completed_at"],
+            "sections": _research_state["sections"],
+        }
+    
+    # Try loading from file
+    try:
+        with open(RESEARCH_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"error": "No research results available. Start research with /api/research/start/{ticker}"}
+
+
+# Keep old endpoint as redirect for backwards compat
+@app.get("/api/research/{ticker}")
+async def run_research(ticker: str):
+    """Start research and return immediately."""
+    return await start_research(ticker)
 
 
 # ── Watchlist ──
