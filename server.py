@@ -678,6 +678,16 @@ async def quicktest():
     except Exception as e:
         fmp_test["sp500"] = {"ok": False, "error": str(e)}
     
+    # Screener test
+    try:
+        scr = bg.scanner.fmp.get_stock_screener(market_cap_min=500000000, limit=5)
+        if scr:
+            fmp_test["screener"] = {"ok": True, "count": len(scr), "sample_keys": list(scr[0].keys())[:15], "sample": {k: scr[0].get(k) for k in ["symbol","price","pe","changes","mktCap","marketCap","changesPercentage","sector"] if scr[0].get(k) is not None}}
+        else:
+            fmp_test["screener"] = {"ok": False, "data": "empty"}
+    except Exception as e:
+        fmp_test["screener"] = {"ok": False, "error": str(e)}
+    
     # Short interest check
     try:
         sf_raw = bg.scanner.fmp._get("shares-float", {"symbol": "TSLA"})
