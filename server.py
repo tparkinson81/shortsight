@@ -119,11 +119,65 @@ async def startup():
     if NEWS_KEY and FMP_KEY:
         bg.initialize()
         print(f"  Scanner initialized.")
-        # Auto-run first scan
-        asyncio.create_task(bg.run_scan())
-        print(f"  Auto-scan started...")
+        # Auto-run first scan only if no cached results exist
+        cached = bg.scanner.get_cached() if bg.scanner else {}
+        if not cached.get("candidates"):
+            asyncio.create_task(bg.run_scan())
+            print(f"  Auto-scan started (no cached results)...")
+        else:
+            print(f"  Cached scan loaded: {len(cached.get('candidates',[]))} candidates from {cached.get('scanned_at','?')}")
+        # Start scheduled scan loop
+        asyncio.create_task(_scheduled_scan_loop())
+        print(f"  Scheduled scanner: weekdays at 8:35 AM ET")
     else:
         print(f"  ⚠ Missing API keys — scanner disabled.")
+
+
+async def _scheduled_scan_loop():
+    """Run scan every weekday at 8:35 AM Eastern Time."""
+    import time as _time
+    
+    while True:
+        try:
+            # Calculate next 8:35 AM ET
+            from datetime import timezone
+            ET_OFFSET = -5  # EST (adjust to -4 for EDT if needed)
+            # Use environment variable for timezone offset, default -5 (EST)
+            tz_offset = int(os.getenv("TZ_OFFSET", "-5"))
+            
+            now_utc = datetime.utcnow()
+            now_et = now_utc + timedelta(hours=tz_offset)
+            
+            # Target: 8:35 AM ET today or next weekday
+            target = now_et.replace(hour=8, minute=35, second=0, microsecond=0)
+            
+            if now_et >= target:
+                # Already past 8:35 today, schedule for tomorrow
+                target += timedelta(days=1)
+            
+            # Skip weekends (Saturday=5, Sunday=6)
+            while target.weekday() >= 5:
+                target += timedelta(days=1)
+            
+            # Convert back to UTC for sleep calculation
+            target_utc = target - timedelta(hours=tz_offset)
+            sleep_seconds = (target_utc - datetime.utcnow()).total_seconds()
+            
+            if sleep_seconds > 0:
+                next_run = target.strftime("%A %Y-%m-%d %H:%M ET")
+                print(f"  [Scheduler] Next scan: {next_run} (in {sleep_seconds/3600:.1f} hours)")
+                await asyncio.sleep(sleep_seconds)
+            
+            # Run the scan
+            print(f"\n  [Scheduler] Triggering scheduled weekday scan...")
+            if not bg.is_running:
+                await bg.run_scan()
+            else:
+                print(f"  [Scheduler] Scan already in progress, skipping")
+                
+        except Exception as e:
+            print(f"  [Scheduler] Error: {e}")
+            await asyncio.sleep(3600)  # Wait an hour on error
 
 
 # ════════════════════════════════════════════
@@ -205,7 +259,27 @@ RESEARCH_TEMPLATE = {
 }
 
 
-def _call_anthropic(system_prompt: str, user_prompt: str, max_retries: int = 3) -> str:
+DEPTH_CONFIGS = {
+    "lite": {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 2048,
+        "max_searches": 3,
+        "prompt_style": "brief",
+        "delay": 10,
+        "label": "Lite (Haiku)",
+    },
+    "heavy": {
+        "model": "claude-sonnet-4-5-20250929",
+        "max_tokens": 4096,
+        "max_searches": 5,
+        "prompt_style": "thorough",
+        "delay": 20,
+        "label": "Heavy (Sonnet)",
+    },
+}
+
+
+def _call_anthropic(system_prompt: str, user_prompt: str, depth: str = "lite", max_retries: int = 3) -> str:
     """Call Anthropic API with web search and rate limit handling."""
     import urllib.request, urllib.error
     import time as _time
@@ -214,11 +288,13 @@ def _call_anthropic(system_prompt: str, user_prompt: str, max_retries: int = 3) 
     if not api_key:
         return "[ERROR: ANTHROPIC_API_KEY not set in environment variables]"
     
+    cfg = DEPTH_CONFIGS.get(depth, DEPTH_CONFIGS["lite"])
+    
     payload = json.dumps({
-        "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 2048,
+        "model": cfg["model"],
+        "max_tokens": cfg["max_tokens"],
         "system": system_prompt,
-        "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+        "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": cfg["max_searches"]}],
         "messages": [{"role": "user", "content": user_prompt}]
     }).encode()
     
@@ -315,24 +391,38 @@ def _extract_json(raw: str) -> Optional[Dict]:
     return None
 
 
-def _research_section(ticker: str, company_name: str, section: str, fields: list) -> Dict:
+def _research_section(ticker: str, company_name: str, section: str, fields: list, depth: str = "lite") -> Dict:
     """Research one section of the template."""
     import time as _time
     
     fields_list = "\n".join(f"- {f}" for f in fields)
+    cfg = DEPTH_CONFIGS.get(depth, DEPTH_CONFIGS["lite"])
     
-    system = f"""You are a short-selling research analyst doing due diligence on {ticker} ({company_name}).
+    if cfg["prompt_style"] == "thorough":
+        system = f"""You are a professional short-selling research analyst conducting deep due diligence on {ticker} ({company_name}).
+Research each field thoroughly with specific, factual data. Use web search to find current, accurate information.
+Include specific numbers, dates, percentages, and sources. Provide context and analysis where relevant.
+If unavailable, say "Not found".
+Respond ONLY with a JSON object. No markdown, no backticks, no explanation."""
+
+        user = f"""Research these fields in depth for {ticker} ({company_name}) — section "{section}":
+
+{fields_list}
+
+Return ONLY JSON: {{"Field Name": "detailed finding with specific data"}}"""
+    else:
+        system = f"""You are a short-selling research analyst doing due diligence on {ticker} ({company_name}).
 For each field, provide a brief factual answer (1-3 sentences max). Use web search only when needed.
 If unavailable, say "Not found".
 Respond ONLY with a JSON object. No markdown, no backticks, no explanation."""
 
-    user = f"""Fill in these fields for {ticker} — section "{section}". Keep answers brief (1-3 sentences each).
+        user = f"""Fill in these fields for {ticker} — section "{section}". Keep answers brief (1-3 sentences each).
 
 {fields_list}
 
 Return ONLY JSON: {{"Field Name": "brief finding"}}"""
 
-    raw = _call_anthropic(system, user)
+    raw = _call_anthropic(system, user, depth=depth)
     
     # Parse JSON
     result = _extract_json(raw)
@@ -400,9 +490,11 @@ RESEARCH_FILE = os.path.join(os.path.dirname(__file__), "data", "research_result
 RESEARCH_DIR = os.path.join(os.path.dirname(__file__), "data", "research")
 
 
-def _run_research_background(ticker: str, company_name: str):
+def _run_research_background(ticker: str, company_name: str, depth: str = "lite"):
     """Run research in background thread."""
     import time as _time
+    
+    cfg = DEPTH_CONFIGS.get(depth, DEPTH_CONFIGS["lite"])
     
     _research_state["running"] = True
     _research_state["ticker"] = ticker
@@ -422,10 +514,10 @@ def _run_research_background(ticker: str, company_name: str):
             break
         
         _research_state["current_section"] = section_name
-        print(f"  [Research] [{i+1}/{len(section_list)}] {section_name} ({len(fields)} fields)")
+        print(f"  [Research] [{i+1}/{len(section_list)}] {section_name} ({len(fields)} fields) [{cfg['label']}]")
         
         try:
-            section_data = _research_section(ticker, company_name, section_name, fields)
+            section_data = _research_section(ticker, company_name, section_name, fields, depth=depth)
             _research_state["sections"][section_name] = section_data
         except Exception as e:
             print(f"  [Research] Error in {section_name}: {e}")
@@ -435,7 +527,7 @@ def _run_research_background(ticker: str, company_name: str):
         
         # Rate limit pause between sections
         if i < len(section_list) - 1:
-            _time.sleep(15)
+            _time.sleep(cfg["delay"])
     
     _research_state["current_section"] = None
     _research_state["running"] = False
@@ -446,6 +538,8 @@ def _run_research_background(ticker: str, company_name: str):
         "ticker": ticker,
         "company_name": company_name,
         "researched_at": _research_state["completed_at"],
+        "depth": depth,
+        "depth_label": cfg["label"],
         "sections": _research_state["sections"],
     }
     try:
@@ -500,9 +594,14 @@ async def stop_research():
 
 
 @app.get("/api/research/start/{ticker}")
-async def start_research(ticker: str):
-    """Start deep research as a background job."""
+async def start_research(ticker: str, depth: str = "lite"):
+    """Start deep research as a background job. depth=lite or heavy"""
     ticker = ticker.upper().strip()
+    
+    if depth not in DEPTH_CONFIGS:
+        depth = "lite"
+    
+    cfg = DEPTH_CONFIGS[depth]
     
     if _research_state["running"]:
         return {"error": "Research already in progress", "ticker": _research_state["ticker"], "progress": _research_state["progress"], "total": _research_state["total"]}
@@ -521,9 +620,9 @@ async def start_research(ticker: str):
     
     # Run in background thread
     loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, _run_research_background, ticker, company_name)
+    loop.run_in_executor(None, _run_research_background, ticker, company_name, depth)
     
-    return {"message": f"Research started on {ticker} ({company_name}). Poll /api/research/status for progress."}
+    return {"message": f"Research started on {ticker} ({company_name}) — {cfg['label']}. Poll /api/research/status for progress."}
 
 
 @app.get("/api/research/status")
