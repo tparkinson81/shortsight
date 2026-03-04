@@ -215,10 +215,10 @@ def _call_anthropic(system_prompt: str, user_prompt: str, max_retries: int = 3) 
         return "[ERROR: ANTHROPIC_API_KEY not set in environment variables]"
     
     payload = json.dumps({
-        "model": "claude-sonnet-4-5-20250929",
-        "max_tokens": 4096,
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 2048,
         "system": system_prompt,
-        "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}],
+        "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
         "messages": [{"role": "user", "content": user_prompt}]
     }).encode()
     
@@ -322,18 +322,15 @@ def _research_section(ticker: str, company_name: str, section: str, fields: list
     fields_list = "\n".join(f"- {f}" for f in fields)
     
     system = f"""You are a short-selling research analyst doing due diligence on {ticker} ({company_name}).
-Research each field with specific, factual data. Use web search for current information.
-Be concise. Include specific numbers, dates, facts.
+For each field, provide a brief factual answer (1-3 sentences max). Use web search only when needed.
 If unavailable, say "Not found".
+Respond ONLY with a JSON object. No markdown, no backticks, no explanation."""
 
-IMPORTANT: Your FINAL response must be ONLY a JSON object. No explanation, no markdown fencing, no preamble.
-Format: {{"Field Name": "finding", "Another Field": "finding"}}"""
-
-    user = f"""Research these fields for {ticker} ({company_name}) — section "{section}":
+    user = f"""Fill in these fields for {ticker} — section "{section}". Keep answers brief (1-3 sentences each).
 
 {fields_list}
 
-Return ONLY a JSON object with each field name as a key and your finding as the value. Nothing else."""
+Return ONLY JSON: {{"Field Name": "brief finding"}}"""
 
     raw = _call_anthropic(system, user)
     
@@ -352,6 +349,40 @@ async def get_research_template():
     return {"sections": RESEARCH_TEMPLATE}
 
 
+@app.get("/api/research/repository")
+async def list_research():
+    """List all saved research reports."""
+    try:
+        os.makedirs(RESEARCH_DIR, exist_ok=True)
+        files = sorted(os.listdir(RESEARCH_DIR), reverse=True)
+        reports = []
+        for f in files:
+            if f.endswith(".json"):
+                name = f.replace(".json", "")
+                parts = name.split(" - ")
+                ticker = parts[0] if parts else name
+                date = parts[1] if len(parts) > 1 else ""
+                reports.append({"filename": f, "ticker": ticker, "date": date, "name": name})
+        return {"reports": reports}
+    except Exception as e:
+        return {"reports": [], "error": str(e)}
+
+
+@app.get("/api/research/load/{filename}")
+async def load_research(filename: str):
+    """Load a saved research report."""
+    filepath = os.path.join(RESEARCH_DIR, filename)
+    if not filename.endswith(".json"):
+        filepath += ".json"
+    try:
+        with open(filepath, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"error": f"Report not found: {filename}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # Background research state
 _research_state = {
     "running": False,
@@ -366,6 +397,7 @@ _research_state = {
 }
 
 RESEARCH_FILE = os.path.join(os.path.dirname(__file__), "data", "research_results.json")
+RESEARCH_DIR = os.path.join(os.path.dirname(__file__), "data", "research")
 
 
 def _run_research_background(ticker: str, company_name: str):
@@ -404,7 +436,7 @@ def _run_research_background(ticker: str, company_name: str):
     _research_state["running"] = False
     _research_state["completed_at"] = datetime.utcnow().isoformat()
     
-    # Save results
+    # Save to repository: data/research/TICKER - YYYY-MM-DD.json
     output = {
         "ticker": ticker,
         "company_name": company_name,
@@ -412,9 +444,16 @@ def _run_research_background(ticker: str, company_name: str):
         "sections": _research_state["sections"],
     }
     try:
-        os.makedirs(os.path.dirname(RESEARCH_FILE), exist_ok=True)
+        os.makedirs(RESEARCH_DIR, exist_ok=True)
+        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+        filename = f"{ticker} - {date_str}.json"
+        filepath = os.path.join(RESEARCH_DIR, filename)
+        with open(filepath, "w") as f:
+            json.dump(output, f, indent=2)
+        # Also save as latest for quick access
         with open(RESEARCH_FILE, "w") as f:
             json.dump(output, f, indent=2)
+        print(f"  [Research] Saved to {filename}")
     except Exception as e:
         print(f"  [Research] Save error: {e}")
     
