@@ -978,65 +978,45 @@ class ShortScanner:
         return output
     
     def _quick_screen(self, universe: List[str], max_candidates: int = 75) -> List[str]:
-        """Quick screen using batch profiles to find weak stocks."""
+        """Quick screen using individual profiles to find weak stocks."""
         candidates = []
-        batch_size = 20
         screened = 0
         
-        for i in range(0, len(universe), batch_size):
-            batch = universe[i:i+batch_size]
+        for ticker in universe:
             try:
-                profiles = self.fmp.get_batch_profiles(batch)
-                if not profiles:
-                    print(f"  [Screen] Batch {i//batch_size+1} returned empty")
+                p = self.fmp.get_profile(ticker)
+                if not p or not p.get("price"):
                     continue
                 
-                if i == 0:
-                    # Log first batch for debugging
-                    sample = profiles[0] if profiles else {}
-                    print(f"  [Screen] Sample profile keys: {list(sample.keys())}")
-                    print(f"  [Screen] Sample: {sample.get('symbol')} pe={sample.get('pe')} changes={sample.get('changes')} mktCap={sample.get('mktCap')}")
+                screened += 1
+                pe = p.get("pe") or 0
+                changes = p.get("changes") or p.get("changesPercentage") or 0
+                mktCap = p.get("mktCap") or 0
                 
-                for p in profiles:
-                    sym = p.get("symbol", "")
-                    if not sym:
-                        continue
-                    screened += 1
-                    pe = p.get("pe") or 0
-                    changes = p.get("changes") or 0
-                    mktCap = p.get("mktCap") or 0
-                    
-                    if mktCap < 500_000_000:
-                        continue
-                    
-                    # Flag for deeper analysis
-                    if pe > 30 or pe < 0:
-                        candidates.append(sym)
-                    elif changes < -0.5:
-                        candidates.append(sym)
-                    elif pe > 15 and changes < 0:
-                        candidates.append(sym)
-                    elif pe == 0:
-                        candidates.append(sym)
+                if mktCap < 500_000_000:
+                    continue
                 
-                time.sleep(0.3)
+                # Flag for deeper analysis
+                if pe > 30 or pe < 0:
+                    candidates.append(ticker)
+                elif changes < -0.5:
+                    candidates.append(ticker)
+                elif pe > 15 and changes < 0:
+                    candidates.append(ticker)
+                elif pe == 0:
+                    candidates.append(ticker)
+                
             except Exception as e:
-                print(f"  [Screen] Batch error: {e}")
+                print(f"  [Screen] Error on {ticker}: {e}")
             
-            if len(candidates) >= max_candidates * 2:
+            # Brief pause to avoid hammering FMP
+            time.sleep(0.15)
+            
+            if len(candidates) >= max_candidates:
                 break
         
         print(f"  [Screen] Screened {screened} profiles, {len(candidates)} passed filter")
-        
-        # Deduplicate
-        seen = set()
-        unique = []
-        for t in candidates:
-            if t not in seen:
-                seen.add(t)
-                unique.append(t)
-        
-        return unique[:max_candidates]
+        return candidates[:max_candidates]
     
     def _assess_risks(self, c: ShortCandidate) -> List[str]:
         risks = []
