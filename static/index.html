@@ -372,8 +372,6 @@ function renderScan(scan){
 function renderFilteredScan(filtered){
   document.getElementById('scanCount').textContent=filtered.length;
   document.getElementById('sF').textContent=filtered.length||'\u2014';
-  var strong=filtered.filter(function(c){return c.conviction==='Very Strong'||c.conviction==='Strong'}).length;
-  document.getElementById('sS').textContent=strong||'\u2014';
   var l=document.getElementById('cList');
   if(!filtered.length){
     if(rawCandidates.length)l.innerHTML='<div class="empty"><p>'+rawCandidates.length+' candidates scored but none match current filters.<br>Adjust <strong>Settings</strong> or conviction filter above.</p></div>';
