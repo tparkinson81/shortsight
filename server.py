@@ -1105,7 +1105,11 @@ if os.path.exists(static_dir):
 async def serve_dashboard():
     index_path = os.path.join(static_dir, "index.html")
     if os.path.exists(index_path):
-        return FileResponse(index_path, headers={
+        # Read file content directly to avoid any caching
+        with open(index_path, "r") as f:
+            content = f.read()
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(content, headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
             "Expires": "0"
