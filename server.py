@@ -1024,7 +1024,7 @@ async def quicktest():
     # FMP News test
     try:
         news_tsla = bg.scanner.fmp.get_stock_news("TSLA")
-        fmp_test["news"] = {"ok": bool(news_tsla), "count": len(news_tsla), "sample_title": news_tsla[0].get("title","")[:80] if news_tsla else "EMPTY"}
+        fmp_test["news"] = {"ok": bool(news_tsla), "count": len(news_tsla), "sample_title": news_tsla[0].get("title","")[:80] if news_tsla else "EMPTY", "sample_symbol": news_tsla[0].get("symbol","") if news_tsla else "NONE"}
     except Exception as e:
         fmp_test["news"] = {"ok": False, "error": str(e)}
     
