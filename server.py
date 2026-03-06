@@ -1021,6 +1021,20 @@ async def quicktest():
     except Exception as e:
         fmp_test["batch_profile"] = {"ok": False, "error": str(e)}
     
+    # FMP News test
+    try:
+        news_tsla = bg.scanner.fmp.get_stock_news("TSLA")
+        fmp_test["news"] = {"ok": bool(news_tsla), "count": len(news_tsla), "sample_title": news_tsla[0].get("title","")[:80] if news_tsla else "EMPTY"}
+    except Exception as e:
+        fmp_test["news"] = {"ok": False, "error": str(e)}
+    
+    # NewsAPI test
+    try:
+        newsapi_tsla = bg.scanner.news.get_ticker_news("TSLA", "Tesla", days=7)
+        fmp_test["newsapi"] = {"ok": bool(newsapi_tsla), "count": len(newsapi_tsla), "sample_title": newsapi_tsla[0].get("title","")[:80] if newsapi_tsla else "EMPTY"}
+    except Exception as e:
+        fmp_test["newsapi"] = {"ok": False, "error": str(e)}
+    
     # Then scan tickers
     test_tickers = ["TSLA", "NVDA", "NKE", "INTC", "BA"]
     results = []
