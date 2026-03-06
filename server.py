@@ -512,22 +512,26 @@ RESEARCH_FILE = os.path.join(os.path.dirname(__file__), "data", "research_result
 RESEARCH_DIR = os.path.join(os.path.dirname(__file__), "data", "research")
 
 
-def _run_research_background(ticker: str, company_name: str, depth: str = "lite"):
+def _run_research_background(ticker: str, company_name: str, depth: str = "lite", selected_sections: list = None):
     """Run research in background thread."""
     import time as _time
     
     cfg = DEPTH_CONFIGS.get(depth, DEPTH_CONFIGS["lite"])
     
+    # Use selected sections or all
+    if selected_sections:
+        section_list = [(k, RESEARCH_TEMPLATE[k]) for k in selected_sections if k in RESEARCH_TEMPLATE]
+    else:
+        section_list = list(RESEARCH_TEMPLATE.items())
+    
     _research_state["running"] = True
     _research_state["ticker"] = ticker
     _research_state["company_name"] = company_name
     _research_state["progress"] = 0
-    _research_state["total"] = len(RESEARCH_TEMPLATE)
+    _research_state["total"] = len(section_list)
     _research_state["sections"] = {}
     _research_state["error"] = None
     _research_state["completed_at"] = None
-    
-    section_list = list(RESEARCH_TEMPLATE.items())
     
     for i, (section_name, fields) in enumerate(section_list):
         # Check if stopped
@@ -616,14 +620,23 @@ async def stop_research():
 
 
 @app.get("/api/research/start/{ticker}")
-async def start_research(ticker: str, depth: str = "lite"):
-    """Start deep research as a background job. depth=lite or heavy"""
+async def start_research(ticker: str, depth: str = "lite", sections: str = ""):
+    """Start deep research as a background job. depth=lite or heavy, sections=comma-separated list"""
     ticker = ticker.upper().strip()
     
     if depth not in DEPTH_CONFIGS:
         depth = "lite"
     
     cfg = DEPTH_CONFIGS[depth]
+    
+    # Parse selected sections
+    if sections:
+        selected = [s.strip() for s in sections.split(",") if s.strip() in RESEARCH_TEMPLATE]
+    else:
+        selected = list(RESEARCH_TEMPLATE.keys())
+    
+    if not selected:
+        return {"error": "No valid sections selected."}
     
     if _research_state["running"]:
         return {"error": "Research already in progress", "ticker": _research_state["ticker"], "progress": _research_state["progress"], "total": _research_state["total"]}
@@ -642,9 +655,9 @@ async def start_research(ticker: str, depth: str = "lite"):
     
     # Run in background thread
     loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, _run_research_background, ticker, company_name, depth)
+    loop.run_in_executor(None, _run_research_background, ticker, company_name, depth, selected)
     
-    return {"message": f"Research started on {ticker} ({company_name}) — {cfg['label']}. Poll /api/research/status for progress."}
+    return {"message": f"Research started on {ticker} ({company_name}) — {cfg['label']}, {len(selected)} sections. Poll /api/research/status for progress."}
 
 
 @app.get("/api/research/status")
