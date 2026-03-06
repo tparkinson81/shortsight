@@ -948,8 +948,8 @@ class ShortScanner:
                 agg = result.get("aggregate_score", 0)
                 bearish_ratio = result.get("bearish_ratio", 0)
                 
-                # Flag if negative sentiment
-                if agg <= -0.15 or bearish_ratio > 0.4:
+                # Flag if any negative sentiment signal
+                if agg <= -0.05 or bearish_ratio > 0.3:
                     sentiment_hits.append({
                         "ticker": ticker,
                         "sentiment_score": agg,
