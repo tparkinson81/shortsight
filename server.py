@@ -1023,12 +1023,38 @@ async def quicktest():
     
     # FMP News test
     try:
+        # Test how many articles FMP actually returns with high limit
+        raw_news_bulk = bg.scanner.fmp._get("news/stock-latest", {"limit": "1000"})
+        bulk_count = len(raw_news_bulk) if isinstance(raw_news_bulk, list) else 0
+        # Count unique symbols
+        symbols_in_news = set()
+        sp500_symbols = set()
+        if isinstance(raw_news_bulk, list):
+            for a in raw_news_bulk:
+                s = (a.get("symbol","") or "").upper()
+                if s:
+                    symbols_in_news.add(s)
+            try:
+                sp_list = bg.scanner.fmp.get_sp500_constituents()
+                sp500_symbols = set(sp_list)
+                sp_in_news = symbols_in_news & sp500_symbols
+            except:
+                sp_in_news = set()
+        
         raw_news = bg.scanner.fmp._get("news/stock-latest", {"symbol": "TSLA", "limit": "5"})
         raw_symbols = []
         if isinstance(raw_news, list):
             raw_symbols = [{"symbol": a.get("symbol",""), "title": a.get("title","")[:60]} for a in raw_news[:5]]
         news_tsla = bg.scanner.fmp.get_stock_news("TSLA")
-        fmp_test["news"] = {"ok": bool(news_tsla), "count": len(news_tsla), "sample_title": news_tsla[0].get("title","")[:80] if news_tsla else "EMPTY", "sample_symbol": news_tsla[0].get("symbol","") if news_tsla else "NONE"}
+        fmp_test["news"] = {
+            "ok": bool(news_tsla), 
+            "filtered_count": len(news_tsla),
+            "bulk_total": bulk_count,
+            "unique_symbols": len(symbols_in_news),
+            "sp500_with_news": len(sp_in_news) if sp_in_news else 0,
+            "sample_sp500_tickers": sorted(list(sp_in_news))[:20] if sp_in_news else [],
+            "sample_title": news_tsla[0].get("title","")[:80] if news_tsla else "EMPTY",
+        }
         fmp_test["news_raw_samples"] = raw_symbols
     except Exception as e:
         fmp_test["news"] = {"ok": False, "error": str(e)}
