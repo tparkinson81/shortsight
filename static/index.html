@@ -183,8 +183,8 @@ body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);min-
 <div id="errBanner" class="err-banner"></div>
 <div class="g4 mb20">
 <div class="card"><div class="sl">Universe</div><div class="sv" id="sU" style="color:var(--text2)">&mdash;</div></div>
-<div class="card"><div class="sl">Flagged</div><div class="sv" id="sF" style="color:var(--red)">&mdash;</div></div>
-<div class="card"><div class="sl">Strong+</div><div class="sv" id="sS" style="color:var(--amber)">&mdash;</div></div>
+<div class="card"><div class="sl">Neg. Sentiment</div><div class="sv" id="sSent" style="color:var(--amber)">&mdash;</div></div>
+<div class="card"><div class="sl">Candidates</div><div class="sv" id="sF" style="color:var(--red)">&mdash;</div></div>
 <div class="card"><div class="sl">Last Scan</div><div class="sv" id="sT" style="font-size:13px;color:var(--text3)">&mdash;</div></div>
 </div>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
@@ -364,7 +364,8 @@ function triggerScan(){var b=document.getElementById('scanBtn');b.textContent='S
 function renderScan(scan){
   rawCandidates=scan.candidates||[];
   document.getElementById('sU').textContent=scan.universe_size||'\u2014';
-  if(scan.scanned_at){var dt=new Date(scan.scanned_at+'Z');var days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];var dayStr=days[dt.getDay()];var dateStr=dt.toLocaleDateString()+' '+dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});document.getElementById('sT').innerHTML=dayStr+' '+dateStr;var durMin=Math.round((scan.scan_seconds||0)/60);document.getElementById('scanMeta').textContent=scan.universe_size+' screened \u2022 '+(durMin>0?durMin+'m ':'')+((scan.scan_seconds||0)%60)+'s \u2022 '+rawCandidates.length+' candidates \u2022 Next: weekdays 8:35 AM ET'}
+  document.getElementById('sSent').textContent=scan.sentiment_flagged||'\u2014';
+  if(scan.scanned_at){var dt=new Date(scan.scanned_at+'Z');var days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];var dayStr=days[dt.getDay()];var dateStr=dt.toLocaleDateString()+' '+dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});document.getElementById('sT').innerHTML=dayStr+' '+dateStr;var durMin=Math.round((scan.scan_seconds||0)/60);var sentFlag=scan.sentiment_flagged||0;document.getElementById('scanMeta').textContent=scan.universe_size+' screened \u2022 '+sentFlag+' negative sentiment \u2022 '+rawCandidates.length+' candidates \u2022 '+(durMin>0?durMin+'m':'<1m')}
   var filtered=rawCandidates.length?filterCandidates(rawCandidates):[];
   renderFilteredScan(filtered);
 }
