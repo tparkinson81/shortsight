@@ -103,15 +103,20 @@ class ShortScanner:
             print(f"  [News] NewsAPI error for {ticker}: {e}")
         
         try:
-            fmp_news = self.fmp.get_stock_news(ticker)
+            # FMP news endpoint returns ALL news regardless of symbol param
+            # So we pull general news and filter by the symbol field on each article
+            fmp_news = self.fmp._get("news/stock-latest", {"limit": "200"})
+            ticker_upper = ticker.upper()
             for item in (fmp_news or []):
-                articles.append({
-                    "title": item.get("title", ""),
-                    "description": item.get("text", ""),
-                    "source": {"name": item.get("site", "")},
-                    "url": item.get("url", ""),
-                    "publishedAt": item.get("publishedDate", "")
-                })
+                article_sym = (item.get("symbol","") or "").upper()
+                if article_sym == ticker_upper:
+                    articles.append({
+                        "title": item.get("title", ""),
+                        "description": item.get("text", ""),
+                        "source": {"name": item.get("site", "")},
+                        "url": item.get("url", ""),
+                        "publishedAt": item.get("publishedDate", "")
+                    })
         except Exception as e:
             print(f"  [News] FMP news error for {ticker}: {e}")
         
@@ -903,70 +908,58 @@ class ShortScanner:
         print(f"  Universe: {len(universe)} tickers")
         
         # ── PASS 1: SENTIMENT SCREEN ──
-        print(f"\n  Pass 1: Sentiment screening {len(universe)} tickers...")
+        # FMP news endpoint ignores symbol param — returns all recent news
+        # So we pull ALL news once, group by the symbol field, and score per ticker
+        print(f"\n  Pass 1: Pulling news feed and scoring sentiment...")
+        
+        # Pull a large batch of general news (FMP returns articles with symbol field)
+        all_news = self.fmp._get("news/stock-latest", {"limit": "1000"})
+        if not isinstance(all_news, list):
+            all_news = []
+        print(f"  [News] Fetched {len(all_news)} articles from FMP")
+        
+        # Group articles by symbol
+        universe_set = set(universe)
+        news_by_ticker = {}
+        for article in all_news:
+            sym = (article.get("symbol","") or "").upper()
+            if sym and sym in universe_set:
+                if sym not in news_by_ticker:
+                    news_by_ticker[sym] = []
+                news_by_ticker[sym].append({
+                    "title": article.get("title", ""),
+                    "description": article.get("text", ""),
+                    "source": {"name": article.get("site", "")},
+                    "url": article.get("url", ""),
+                    "publishedAt": article.get("publishedDate", "")
+                })
+        
+        print(f"  [News] {len(news_by_ticker)} S&P tickers have news articles")
+        
+        # Score sentiment for each ticker that has news
         sentiment_hits = []
-        no_news_count = 0
-        
-        for i, ticker in enumerate(universe):
+        for ticker_sym, articles in news_by_ticker.items():
             if hasattr(self, '_progress_cb') and self._progress_cb:
-                self._progress_cb(i + 1, len(universe), ticker, len(sentiment_hits))
+                self._progress_cb(len(sentiment_hits), len(news_by_ticker), ticker_sym, len(sentiment_hits))
             
-            try:
-                articles = []
-                
-                # Try FMP news first
-                fmp_news = self.fmp.get_stock_news(ticker)
-                for item in (fmp_news or []):
-                    articles.append({
-                        "title": item.get("title", ""),
-                        "description": item.get("text", ""),
-                        "source": {"name": item.get("site", "")},
-                        "url": item.get("url", ""),
-                        "publishedAt": item.get("publishedDate", "")
-                    })
-                
-                # Log first few to diagnose
-                if i < 3:
-                    print(f"  [{i+1}] {ticker}: FMP returned {len(fmp_news or [])} articles")
-                
-                # If FMP returned nothing, try NewsAPI
-                if not articles and self.news:
-                    try:
-                        newsapi_articles = self.news.get_ticker_news(ticker, days=7)
-                        articles.extend(newsapi_articles or [])
-                        if i < 3:
-                            print(f"  [{i+1}] {ticker}: NewsAPI returned {len(newsapi_articles or [])} articles")
-                    except:
-                        pass
-                
-                if not articles:
-                    no_news_count += 1
-                    continue
-                
-                # Score sentiment (local, no API call)
-                result = self.sentiment.score_headlines(articles, ticker)
-                agg = result.get("aggregate_score", 0)
-                bearish_ratio = result.get("bearish_ratio", 0)
-                
-                # Flag if any negative sentiment signal
-                if agg <= -0.05 or bearish_ratio > 0.3:
-                    sentiment_hits.append({
-                        "ticker": ticker,
-                        "sentiment_score": agg,
-                        "bearish_ratio": bearish_ratio,
-                        "article_count": result.get("article_count", 0),
-                    })
-                    print(f"  [{i+1}/{len(universe)}] {ticker} ★ sentiment={agg:+.2f} bearish={bearish_ratio:.0%} ({result.get('article_count',0)} articles)")
-                
-            except Exception as e:
-                print(f"  [{i+1}/{len(universe)}] {ticker} error: {e}")
+            result = self.sentiment.score_headlines(articles, ticker_sym)
+            agg = result.get("aggregate_score", 0)
+            bearish_ratio = result.get("bearish_ratio", 0)
             
-            time.sleep(0.15)
-            
-            if (i + 1) % 100 == 0:
-                print(f"  --- Pass 1: {i+1}/{len(universe)}, {len(sentiment_hits)} negative, {no_news_count} no news ---")
+            if agg <= -0.05 or bearish_ratio > 0.3:
+                sentiment_hits.append({
+                    "ticker": ticker_sym,
+                    "sentiment_score": agg,
+                    "bearish_ratio": bearish_ratio,
+                    "article_count": result.get("article_count", 0),
+                })
+                print(f"  ★ {ticker_sym}: sentiment={agg:+.2f} bearish={bearish_ratio:.0%} ({len(articles)} articles)")
         
-        print(f"\n  Pass 1 stats: {no_news_count} tickers had no news, {len(sentiment_hits)} flagged negative")
+        # Also check tickers without FMP news via individual lookup (top 50 by market cap)
+        # Skip this for speed — the bulk news covers most active tickers
+        
+        pass1_time = (datetime.utcnow() - start).total_seconds()
+        print(f"\n  Pass 1 complete in {pass1_time:.0f}s: {len(news_by_ticker)} tickers with news, {len(sentiment_hits)} flagged negative")
         
         # Sort by most negative sentiment first
         sentiment_hits.sort(key=lambda x: x["sentiment_score"])
