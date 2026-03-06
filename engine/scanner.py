@@ -905,14 +905,16 @@ class ShortScanner:
         # ── PASS 1: SENTIMENT SCREEN ──
         print(f"\n  Pass 1: Sentiment screening {len(universe)} tickers...")
         sentiment_hits = []
+        no_news_count = 0
         
         for i, ticker in enumerate(universe):
             if hasattr(self, '_progress_cb') and self._progress_cb:
                 self._progress_cb(i + 1, len(universe), ticker, len(sentiment_hits))
             
             try:
-                # Get news from FMP (1 call per ticker, fast)
                 articles = []
+                
+                # Try FMP news first
                 fmp_news = self.fmp.get_stock_news(ticker)
                 for item in (fmp_news or []):
                     articles.append({
@@ -923,7 +925,22 @@ class ShortScanner:
                         "publishedAt": item.get("publishedDate", "")
                     })
                 
+                # Log first few to diagnose
+                if i < 3:
+                    print(f"  [{i+1}] {ticker}: FMP returned {len(fmp_news or [])} articles")
+                
+                # If FMP returned nothing, try NewsAPI
+                if not articles and self.news:
+                    try:
+                        newsapi_articles = self.news.get_ticker_news(ticker, days=7)
+                        articles.extend(newsapi_articles or [])
+                        if i < 3:
+                            print(f"  [{i+1}] {ticker}: NewsAPI returned {len(newsapi_articles or [])} articles")
+                    except:
+                        pass
+                
                 if not articles:
+                    no_news_count += 1
                     continue
                 
                 # Score sentiment (local, no API call)
@@ -939,7 +956,7 @@ class ShortScanner:
                         "bearish_ratio": bearish_ratio,
                         "article_count": result.get("article_count", 0),
                     })
-                    print(f"  [{i+1}/{len(universe)}] {ticker} ★ sentiment={agg:+.2f} bearish={bearish_ratio:.0%}")
+                    print(f"  [{i+1}/{len(universe)}] {ticker} ★ sentiment={agg:+.2f} bearish={bearish_ratio:.0%} ({result.get('article_count',0)} articles)")
                 
             except Exception as e:
                 print(f"  [{i+1}/{len(universe)}] {ticker} error: {e}")
@@ -947,7 +964,9 @@ class ShortScanner:
             time.sleep(0.15)
             
             if (i + 1) % 100 == 0:
-                print(f"  --- Pass 1: {i+1}/{len(universe)}, {len(sentiment_hits)} negative sentiment ---")
+                print(f"  --- Pass 1: {i+1}/{len(universe)}, {len(sentiment_hits)} negative, {no_news_count} no news ---")
+        
+        print(f"\n  Pass 1 stats: {no_news_count} tickers had no news, {len(sentiment_hits)} flagged negative")
         
         # Sort by most negative sentiment first
         sentiment_hits.sort(key=lambda x: x["sentiment_score"])
