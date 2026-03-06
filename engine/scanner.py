@@ -671,38 +671,22 @@ class ShortScanner:
             if total > 0:
                 bearish_pct = sell / total
                 if bearish_pct > 0.3:
-                    score += 4
+                    score += 3
                     flags.append(f"{bearish_pct:.0%} of analysts rate Sell — unusual bearish consensus")
                 elif bearish_pct > 0.15:
-                    score += 2
+                    score += 1
                     flags.append(f"{bearish_pct:.0%} analyst sell ratings")
-        
-        # Price target vs current price
-        pt = self.fmp.get_price_target_consensus(ticker)
-        if pt and price > 0:
-            consensus = pt.get("targetConsensus") or pt.get("targetPrice", 0)
-            if consensus and consensus > 0:
+            
+            # Price target from same endpoint if available
+            consensus = recs.get("targetConsensus") or recs.get("targetPrice", 0)
+            if consensus and consensus > 0 and price > 0:
                 upside = ((consensus - price) / price) * 100
                 if upside < -10:
-                    score += 4
-                    flags.append(f"Trading {abs(upside):.0f}% ABOVE consensus target (${consensus:.0f}) — priced beyond expectations")
-                elif upside < 0:
                     score += 2
+                    flags.append(f"Trading {abs(upside):.0f}% ABOVE consensus target (${consensus:.0f})")
+                elif upside < 0:
+                    score += 1
                     flags.append(f"Above consensus price target (${consensus:.0f})")
-        
-        # Recent grades (downgrades)
-        grades = self.fmp.get_grades(ticker)
-        downgrades = 0
-        for g in (grades or [])[:10]:
-            action = (g.get("newGrade", "") or "").lower()
-            if any(x in action for x in ["sell", "underweight", "underperform", "reduce"]):
-                downgrades += 1
-        
-        if downgrades >= 3:
-            score += 3
-            flags.append(f"{downgrades} recent analyst downgrades")
-        elif downgrades >= 1:
-            score += 1
             flags.append(f"Recent analyst downgrade(s)")
         
         return min(score, 5), flags
@@ -791,36 +775,25 @@ class ShortScanner:
                 generated_at=datetime.utcnow().isoformat()
             )
             
-            time.sleep(0.2)
-            
-            # Score each dimension
+            # Score each dimension — no sleeps between (FMP handles rate limiting)
             c.news_score, c.news_flags, c.top_headlines = self.score_news(ticker, c.company_name)
-            time.sleep(0.3)
             
-            c.transcript_score, c.transcript_flags = self.score_transcript(ticker)
-            time.sleep(0.3)
+            # Skip transcript if no API Ninjas key (always returns 0)
+            if self.apininjas:
+                c.transcript_score, c.transcript_flags = self.score_transcript(ticker)
+            else:
+                c.transcript_score, c.transcript_flags = 0, []
             
             c.insider_score, c.insider_flags = self.score_insiders(ticker)
-            time.sleep(0.2)
-            
             c.earnings_score, c.earnings_flags = self.score_earnings(ticker)
-            time.sleep(0.3)
-            
             c.short_interest_score, c.short_interest_flags = self.score_short_interest(ticker)
-            time.sleep(0.2)
-            
             c.valuation_score, c.valuation_flags = self.score_valuation(ticker, profile)
-            time.sleep(0.2)
-            
             c.price_action_score, c.price_action_flags = self.score_price_action(ticker, c.price, profile)
-            time.sleep(0.1)
             
-            c.social_score, c.social_flags, c.reddit_posts = self.score_social(ticker)
-            time.sleep(0.2)
+            # Skip social if no meaningful source configured (always returns 0)
+            c.social_score, c.social_flags, c.reddit_posts = 0, [], []
             
             c.sec_score, c.sec_flags = self.score_sec(ticker)
-            time.sleep(0.1)
-            
             c.analyst_score, c.analyst_flags = self.score_analysts(ticker, c.price)
             
             # Total
@@ -908,7 +881,9 @@ class ShortScanner:
     
     def run_scan(self, max_deep: int = 75) -> Dict:
         """
-        Full scan: scan S&P 500 tickers directly (no quick screen).
+        Two-pass scan:
+        Pass 1: Sentiment screen — pull news for each ticker, score sentiment (fast)
+        Pass 2: Deep scan — full 10-dimension analysis on tickers with negative sentiment
         """
         start = datetime.utcnow()
         
@@ -927,25 +902,74 @@ class ShortScanner:
                         "DHR","NKE","TXN","PM","UPS","NEE","RTX","LOW","BMY","AMGN"]
         print(f"  Universe: {len(universe)} tickers")
         
-        # Scan all tickers directly — no quick screen
-        print(f"\n  Scanning all {len(universe)} tickers...")
+        # ── PASS 1: SENTIMENT SCREEN ──
+        print(f"\n  Pass 1: Sentiment screening {len(universe)} tickers...")
+        sentiment_hits = []
         
-        # Deep scan
-        results = []
         for i, ticker in enumerate(universe):
-            print(f"  [{i+1}/{len(universe)}] {ticker}")
-            
-            # Report progress via callback
             if hasattr(self, '_progress_cb') and self._progress_cb:
-                self._progress_cb(i + 1, len(universe), ticker, len(results))
+                self._progress_cb(i + 1, len(universe), ticker, len(sentiment_hits))
             
+            try:
+                # Get news from FMP (1 call per ticker, fast)
+                articles = []
+                fmp_news = self.fmp.get_stock_news(ticker)
+                for item in (fmp_news or []):
+                    articles.append({
+                        "title": item.get("title", ""),
+                        "description": item.get("text", ""),
+                        "source": {"name": item.get("site", "")},
+                        "url": item.get("url", ""),
+                        "publishedAt": item.get("publishedDate", "")
+                    })
+                
+                if not articles:
+                    continue
+                
+                # Score sentiment (local, no API call)
+                result = self.sentiment.score_headlines(articles, ticker)
+                agg = result.get("aggregate_score", 0)
+                bearish_ratio = result.get("bearish_ratio", 0)
+                
+                # Flag if negative sentiment
+                if agg <= -0.15 or bearish_ratio > 0.4:
+                    sentiment_hits.append({
+                        "ticker": ticker,
+                        "sentiment_score": agg,
+                        "bearish_ratio": bearish_ratio,
+                        "article_count": result.get("article_count", 0),
+                    })
+                    print(f"  [{i+1}/{len(universe)}] {ticker} ★ sentiment={agg:+.2f} bearish={bearish_ratio:.0%}")
+                
+            except Exception as e:
+                print(f"  [{i+1}/{len(universe)}] {ticker} error: {e}")
+            
+            time.sleep(0.15)
+            
+            if (i + 1) % 100 == 0:
+                print(f"  --- Pass 1: {i+1}/{len(universe)}, {len(sentiment_hits)} negative sentiment ---")
+        
+        # Sort by most negative sentiment first
+        sentiment_hits.sort(key=lambda x: x["sentiment_score"])
+        candidates = [h["ticker"] for h in sentiment_hits[:max_deep]]
+        
+        pass1_time = (datetime.utcnow() - start).total_seconds()
+        print(f"\n  Pass 1 complete: {len(sentiment_hits)} with negative sentiment in {pass1_time:.0f}s")
+        top_neg = ", ".join(f"{h['ticker']}({h['sentiment_score']:+.2f})" for h in sentiment_hits[:10])
+        print(f"  Top negatives: {top_neg}")
+        
+        # ── PASS 2: DEEP SCAN ON SENTIMENT HITS ──
+        print(f"\n  Pass 2: Deep analysis on {len(candidates)} tickers...")
+        results = []
+        for i, ticker in enumerate(candidates):
+            if hasattr(self, '_progress_cb') and self._progress_cb:
+                self._progress_cb(len(universe) + i + 1, len(universe) + len(candidates), ticker, len(results))
+            
+            print(f"  [{i+1}/{len(candidates)}] {ticker}")
             r = self.scan_ticker(ticker)
             if r:
                 results.append(r)
-            time.sleep(0.5)
-            
-            if (i + 1) % 50 == 0:
-                print(f"  --- Progress: {i+1}/{len(universe)}, {len(results)} scored so far ---")
+            time.sleep(0.2)
         
         # Sort by critical signal count → elevated count → total score
         results.sort(key=lambda x: (
@@ -959,7 +983,8 @@ class ShortScanner:
         output = {
             "candidates": results,
             "universe_size": len(universe),
-            "screened": len(universe),
+            "sentiment_flagged": len(sentiment_hits),
+            "screened": len(candidates),
             "found": len(results),
             "scan_seconds": round(elapsed, 1),
             "scanned_at": datetime.utcnow().isoformat(),
@@ -975,6 +1000,8 @@ class ShortScanner:
         
         print(f"\n{'='*60}")
         print(f"  Scan complete! {len(results)} candidates found in {elapsed:.0f}s")
+        print(f"  Pass 1: {len(universe)} screened → {len(sentiment_hits)} negative sentiment ({pass1_time:.0f}s)")
+        print(f"  Pass 2: {len(candidates)} deep scanned → {len(results)} scored")
         bk = output["breakdown"]
         print(f"  Very Strong: {bk['very_strong']} | Strong: {bk['strong']} | Moderate: {bk['moderate']}")
         print(f"{'='*60}\n")
