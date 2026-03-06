@@ -1023,8 +1023,13 @@ async def quicktest():
     
     # FMP News test
     try:
+        raw_news = bg.scanner.fmp._get("news/stock-latest", {"symbol": "TSLA", "limit": "5"})
+        raw_symbols = []
+        if isinstance(raw_news, list):
+            raw_symbols = [{"symbol": a.get("symbol",""), "title": a.get("title","")[:60]} for a in raw_news[:5]]
         news_tsla = bg.scanner.fmp.get_stock_news("TSLA")
         fmp_test["news"] = {"ok": bool(news_tsla), "count": len(news_tsla), "sample_title": news_tsla[0].get("title","")[:80] if news_tsla else "EMPTY", "sample_symbol": news_tsla[0].get("symbol","") if news_tsla else "NONE"}
+        fmp_test["news_raw_samples"] = raw_symbols
     except Exception as e:
         fmp_test["news"] = {"ok": False, "error": str(e)}
     
