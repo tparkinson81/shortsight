@@ -909,14 +909,20 @@ class ShortScanner:
         
         # ── PASS 1: SENTIMENT SCREEN ──
         # FMP news endpoint ignores symbol param — returns all recent news
-        # So we pull ALL news once, group by the symbol field, and score per ticker
-        print(f"\n  Pass 1: Pulling news feed and scoring sentiment...")
+        # Pull multiple pages to get broader ticker coverage
+        print(f"\n  Pass 1: Building sentiment picture...")
         
-        # Pull a large batch of general news (FMP returns articles with symbol field)
-        all_news = self.fmp._get("news/stock-latest", {"limit": "1000"})
-        if not isinstance(all_news, list):
-            all_news = []
-        print(f"  [News] Fetched {len(all_news)} articles from FMP")
+        # Pull multiple pages of news
+        all_news = []
+        for page in range(20):  # 20 pages × 50 articles = 1000 articles
+            batch = self.fmp._get("news/stock-latest", {"limit": "50", "page": str(page)})
+            if not isinstance(batch, list) or not batch:
+                print(f"  [News] Page {page}: empty — stopping pagination")
+                break
+            all_news.extend(batch)
+            time.sleep(0.15)
+        
+        print(f"  [News] Fetched {len(all_news)} total articles")
         
         # Group articles by symbol
         universe_set = set(universe)
@@ -934,32 +940,55 @@ class ShortScanner:
                     "publishedAt": article.get("publishedDate", "")
                 })
         
-        print(f"  [News] {len(news_by_ticker)} S&P tickers have news articles")
+        print(f"  [News] {len(news_by_ticker)} S&P tickers have news ({sum(len(v) for v in news_by_ticker.values())} articles matched)")
         
-        # Score sentiment for each ticker that has news
+        # Also pull recent analyst downgrades as supplementary signal
+        grades_data = self.fmp._get("grades", {"limit": "500"})
+        downgrades_by_ticker = {}
+        if isinstance(grades_data, list):
+            for g in grades_data:
+                sym = (g.get("symbol","") or "").upper()
+                action = (g.get("action","") or "").lower()
+                new_grade = (g.get("newGrade","") or "").lower()
+                if sym in universe_set and ("downgrade" in action or any(x in new_grade for x in ["sell","underweight","underperform","reduce"])):
+                    if sym not in downgrades_by_ticker:
+                        downgrades_by_ticker[sym] = 0
+                    downgrades_by_ticker[sym] += 1
+            print(f"  [Grades] {len(downgrades_by_ticker)} tickers with recent downgrades")
+        
+        # Score sentiment for tickers with news
         sentiment_hits = []
         for ticker_sym, articles in news_by_ticker.items():
-            if hasattr(self, '_progress_cb') and self._progress_cb:
-                self._progress_cb(len(sentiment_hits), len(news_by_ticker), ticker_sym, len(sentiment_hits))
-            
             result = self.sentiment.score_headlines(articles, ticker_sym)
             agg = result.get("aggregate_score", 0)
             bearish_ratio = result.get("bearish_ratio", 0)
+            downgrades = downgrades_by_ticker.get(ticker_sym, 0)
             
-            if agg <= -0.05 or bearish_ratio > 0.3:
+            # Flag if negative sentiment OR multiple downgrades
+            if agg <= -0.05 or bearish_ratio > 0.3 or downgrades >= 2:
                 sentiment_hits.append({
                     "ticker": ticker_sym,
                     "sentiment_score": agg,
                     "bearish_ratio": bearish_ratio,
                     "article_count": result.get("article_count", 0),
+                    "downgrades": downgrades,
                 })
-                print(f"  ★ {ticker_sym}: sentiment={agg:+.2f} bearish={bearish_ratio:.0%} ({len(articles)} articles)")
+                print(f"  ★ {ticker_sym}: sentiment={agg:+.2f} bearish={bearish_ratio:.0%} articles={len(articles)} downgrades={downgrades}")
         
-        # Also check tickers without FMP news via individual lookup (top 50 by market cap)
-        # Skip this for speed — the bulk news covers most active tickers
+        # Add tickers with downgrades but no news
+        for sym, count in downgrades_by_ticker.items():
+            if count >= 2 and sym not in {h["ticker"] for h in sentiment_hits}:
+                sentiment_hits.append({
+                    "ticker": sym,
+                    "sentiment_score": 0,
+                    "bearish_ratio": 0,
+                    "article_count": 0,
+                    "downgrades": count,
+                })
+                print(f"  ★ {sym}: no news but {count} downgrades")
         
         pass1_time = (datetime.utcnow() - start).total_seconds()
-        print(f"\n  Pass 1 complete in {pass1_time:.0f}s: {len(news_by_ticker)} tickers with news, {len(sentiment_hits)} flagged negative")
+        print(f"\n  Pass 1 complete in {pass1_time:.0f}s: {len(news_by_ticker)} tickers with news, {len(sentiment_hits)} flagged")
         
         # Sort by most negative sentiment first
         sentiment_hits.sort(key=lambda x: x["sentiment_score"])
