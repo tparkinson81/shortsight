@@ -290,9 +290,22 @@ class FMPFetcher:
     
     def get_stock_news(self, ticker: str) -> List[Dict]:
         """Get FMP stock news for a ticker."""
+        # Try ticker-specific endpoint first
         data = self._get("news/stock-latest", {"symbol": ticker, "limit": "30"})
-        if isinstance(data, list):
-            return data
+        if isinstance(data, list) and data:
+            # Filter to only articles that mention this ticker
+            filtered = []
+            ticker_lower = ticker.lower()
+            for item in data:
+                text = ((item.get("title","") or "") + " " + (item.get("text","") or "") + " " + (item.get("symbol","") or "")).lower()
+                if ticker_lower in text:
+                    filtered.append(item)
+            if filtered:
+                return filtered
+            # If filter returned nothing, the endpoint might already be filtered
+            # Check if first article's symbol matches
+            if data[0].get("symbol","").upper() == ticker:
+                return data
         return []
     
     def get_general_news(self, limit: int = 50) -> List[Dict]:
